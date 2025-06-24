@@ -7,14 +7,14 @@ Implements the nine-attribute system from Advanced-Implementation-Guide.md
 
 from typing import Set, Type, List
 import time
-from ..core.ecs.system import BaseSystem
-from ..core.ecs.entity import Entity
-from ..core.ecs.component import BaseComponent
-from ..core.utils.logging import Logger
-from ..core.utils.performance import PerformanceMonitor
-from ..components.stats.attributes import AttributeStats
-from ..components.stats.resources import ResourceManager
-from ..components.stats.modifiers import ModifierManager
+from core.ecs.system import BaseSystem
+from core.ecs.entity import Entity
+from core.ecs.component import BaseComponent
+from core.utils.logging import Logger
+from core.utils.performance import PerformanceMonitor
+from components.stats.attributes import AttributeStats
+from components.stats.resources import ResourceManager
+from components.stats.modifiers import ModifierManager
 
 class StatSystem(BaseSystem):
     """
@@ -72,18 +72,26 @@ class StatSystem(BaseSystem):
         
         # Update resource manager if present
         if resources:
+            # Update max values based on derived stats
+            derived = attributes.derived_stats
+            old_mp_max = resources.mp.max_value
+            new_mp_max = derived.get('mp', resources.mp.max_value)
+            
+            if new_mp_max != old_mp_max:
+                # Scale current MP proportionally when max changes
+                if old_mp_max > 0:
+                    mp_ratio = resources.mp.current_value / old_mp_max
+                    resources.mp.max_value = new_mp_max
+                    resources.mp.current_value = min(new_mp_max, int(new_mp_max * mp_ratio))
+                else:
+                    resources.mp.max_value = new_mp_max
+                    resources.mp.current_value = new_mp_max  # Start full if was empty
+            
             # Determine location type (placeholder - will be enhanced with grid integration)
             location_type = "normal"  # TODO: Get from grid position
             in_combat = False  # TODO: Get from combat state
             
             resources.update(delta_time, location_type, in_combat)
-            
-            # Update max resources based on derived stats
-            derived_stats = attributes.derived_stats
-            resources.set_max_resources(
-                max_mp=derived_stats.get('mp', 100),
-                max_rage=derived_stats.get('rage', 100)  # Will need to add rage calculation
-            )
         
         # Update modifier manager if present
         if modifiers:
@@ -138,8 +146,8 @@ class StatSystem(BaseSystem):
         if not attributes:
             return 0
         
-        base_stats = attributes.derived_stats
-        base_value = base_stats.get(stat_name, 0)
+        # Get base attribute value directly
+        base_value = getattr(attributes, stat_name, 0)
         
         # Apply modifiers if present
         modifiers = entity.get_component(ModifierManager)
@@ -191,7 +199,7 @@ class StatSystem(BaseSystem):
     def initialize(self):
         """Initialize stat system"""
         # Register stat components
-        from ..core.ecs.component import ComponentRegistry
+        from core.ecs.component import ComponentRegistry
         ComponentRegistry.register(AttributeStats)
         ComponentRegistry.register(ResourceManager)
         ComponentRegistry.register(ModifierManager)

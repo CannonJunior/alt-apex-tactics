@@ -11,7 +11,7 @@ from typing import Dict, Any
 import time
 from dataclasses import dataclass
 
-from ...core.ecs.component import BaseComponent
+from core.ecs.component import BaseComponent
 
 @dataclass
 class AttributeStats(BaseComponent):

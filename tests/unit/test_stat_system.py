@@ -205,7 +205,7 @@ class TestResourceManager:
         success = resources.spend_resources(mp_cost=30, rage_cost=25)
         assert success is True
         assert resources.mp.current_value == 70
-        assert resources.rage.current_value < 50  # Some rage spent
+        assert resources.rage.current_value == 50  # 75 - 25 = 50
 
 
 class TestModifierSystem:

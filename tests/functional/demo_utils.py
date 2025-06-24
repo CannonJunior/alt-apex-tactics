@@ -230,11 +230,16 @@ Character Archetypes:
 4. Paladin - High Worthy/Faith, divine magic user
 
 Interactive Controls:
-- WASD: Move camera
+Camera Modes:
+- 1: Orbit mode (mouse drag + arrow keys to rotate, scroll to zoom)
+- 2: Free mode (WASD + QE to move, mouse drag to look)
+- 3: Top-down mode (WASD to pan)
+
+Demo Controls:
 - Space: Pause/Resume simulation
 - R: Reset simulation
 - P: Toggle pathfinding visualization
-- 1-4: Focus on character archetype
+- 4-7: Focus on character archetype
 - ESC: Exit demonstration
 
 Performance Targets:

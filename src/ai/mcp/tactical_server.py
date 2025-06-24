@@ -16,10 +16,10 @@ except ImportError:
     print("Warning: FastMCP not available. MCP server will be disabled.")
     FastMCP = None
 
-from ...core.ecs.world import World
-from ...core.ecs.entity import Entity
-from ...core.math.vector import Vector3, Vector2Int
-from ...core.utils.logging import Logger
+from core.ecs.world import World
+from core.ecs.entity import Entity
+from core.math.vector import Vector3, Vector2Int
+from core.utils.logging import Logger
 
 class TacticalMCPServer:
     """
@@ -67,7 +67,7 @@ class TacticalMCPServer:
                     }
                 
                 # Basic analysis - will be expanded as systems develop
-                from ...core.ecs.component import Transform
+                from core.ecs.component import Transform
                 transform = entity.get_component(Transform)
                 
                 analysis = {
@@ -234,7 +234,7 @@ class TacticalMCPServer:
                 
                 # Add unit data (limited for now until more components exist)
                 for entity in all_entities[:10]:  # Limit to first 10 for performance
-                    from ...core.ecs.component import Transform
+                    from core.ecs.component import Transform
                     transform = entity.get_component(Transform)
                     
                     unit_data = {

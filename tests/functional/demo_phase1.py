@@ -30,6 +30,11 @@ from demo_utils import (
 
 from core.math.vector import Vector2Int, Vector3
 from core.math.pathfinding import AStarPathfinder
+from core.ecs.component import Transform
+from ui.camera_controller import CameraController
+
+# Global reference to demo instance for input handling
+demo_instance = None
 
 
 class Phase1Demo:
@@ -55,9 +60,14 @@ class Phase1Demo:
         self.character_entities = []
         self.path_entities = []
         self.ui_text = None
+        self.camera_controller = None
         
         print(create_demo_scenario_description())
         self._initialize()
+        
+        # Set global reference for input handling
+        global demo_instance
+        demo_instance = self
     
     def _initialize(self):
         """Initialize the demonstration"""
@@ -86,11 +96,10 @@ class Phase1Demo:
     
     def _initialize_visual(self):
         """Initialize Ursina visual components"""
-        app = Ursina()
+        self.app = Ursina()
         
-        # Set up camera
-        camera.position = (5, 10, 5)
-        camera.rotation_x = 45
+        # Initialize advanced camera controller
+        self.camera_controller = CameraController(self.grid.width, self.grid.height)
         
         # Create grid visualization
         self._create_grid_visual()
@@ -109,18 +118,18 @@ class Phase1Demo:
                 
                 if cell:
                     # Choose color based on terrain type
-                    color = color.white
+                    cell_color = color.white
                     if cell.terrain_type.name == 'WALL':
-                        color = color.gray
+                        cell_color = color.gray
                     elif cell.terrain_type.name == 'DIFFICULT':
-                        color = color.brown
+                        cell_color = color.brown
                     elif cell.terrain_type.name == 'ELEVATED':
-                        color = color.yellow
+                        cell_color = color.yellow
                     
                     # Create cube for cell
                     cube = Entity(
                         model='cube',
-                        color=color,
+                        color=cell_color,
                         position=(x, cell.height * 0.5, y),
                         scale=(0.9, cell.height if cell.height > 0 else 0.1, 0.9)
                     )
@@ -162,35 +171,92 @@ class Phase1Demo:
             parent=camera.ui,
             origin=(0, 0)
         )
+        
+        # Camera mode indicator
+        self.camera_mode_text = Text(
+            f'Camera: {self.camera_controller.get_mode_name()} (Arrow keys, mouse drag, scroll)',
+            position=(-0.8, -0.4),
+            scale=0.8,
+            parent=camera.ui,
+            origin=(0, 0),
+            color=color.yellow
+        )
     
     def _setup_input_handlers(self):
         """Set up keyboard input handlers"""
-        def input(key):
-            if key == 'space':
-                self.paused = not self.paused
-                print(f"Demo {'paused' if self.paused else 'resumed'}")
-            
-            elif key == 'r':
-                print("Resetting demonstration...")
-                self._reset_demo()
-            
-            elif key == 'p':
-                self.show_pathfinding = not self.show_pathfinding
-                print(f"Pathfinding visualization {'enabled' if self.show_pathfinding else 'disabled'}")
-            
-            elif key in ['1', '2', '3', '4']:
-                self.selected_character = int(key) - 1
-                if self.selected_character < len(self.characters):
-                    archetype_name = self.characters[self.selected_character][0]
-                    print(f"Selected {archetype_name}")
-            
-            elif key == 'escape':
-                self.running = False
-                print("Exiting demonstration...")
+        # Input will be handled by global function
+        pass
+    
+    def handle_input(self, key):
+        """Handle input for this demo instance"""
+        # Orbit camera controls - handle exactly like 1/2/3 keys using same approach
+        if key == 'scroll up':
+            if self.camera_controller:
+                self.camera_controller.camera_distance = max(self.camera_controller.min_distance, self.camera_controller.camera_distance - self.camera_controller.zoom_speed)
+                self.camera_controller.update_camera()  # Update camera position
+            return
+        elif key == 'scroll down':
+            if self.camera_controller:
+                self.camera_controller.camera_distance = min(self.camera_controller.max_distance, self.camera_controller.camera_distance + self.camera_controller.zoom_speed)
+                self.camera_controller.update_camera()  # Update camera position
+            return
+        elif key == 'left arrow':
+            if self.camera_controller:
+                self.camera_controller.camera_angle_y -= 5.0  # Fixed rotation amount per press
+                self.camera_controller.update_camera()  # Update camera position
+            return
+        elif key == 'right arrow':
+            if self.camera_controller:
+                self.camera_controller.camera_angle_y += 5.0  # Fixed rotation amount per press
+                self.camera_controller.update_camera()  # Update camera position
+            return
+        elif key == 'up arrow':
+            if self.camera_controller:
+                self.camera_controller.camera_angle_x = max(-80, self.camera_controller.camera_angle_x - 5.0)
+                self.camera_controller.update_camera()  # Update camera position
+            return
+        elif key == 'down arrow':
+            if self.camera_controller:
+                self.camera_controller.camera_angle_x = min(80, self.camera_controller.camera_angle_x + 5.0)
+                self.camera_controller.update_camera()  # Update camera position
+            return
         
-        # Override Ursina's input function
-        import ursina
-        ursina.input = input
+        # Demo-specific controls
+        if key == 'space':
+            self.paused = not self.paused
+            print(f"Demo {'paused' if self.paused else 'resumed'}")
+        
+        elif key == 'r':
+            print("Resetting demonstration...")
+            self._reset_demo()
+        
+        elif key == 'p':
+            self.show_pathfinding = not self.show_pathfinding
+            print(f"Pathfinding visualization {'enabled' if self.show_pathfinding else 'disabled'}")
+        
+        elif key in ['1', '2', '3', '4']:  # Character selection
+            self.selected_character = int(key) - 1
+            if self.selected_character < len(self.characters):
+                archetype_name = self.characters[self.selected_character][0]
+                print(f"Selected {archetype_name}")
+                # Focus camera on selected character
+                if self.camera_controller:
+                    transform = self.characters[self.selected_character][1].get_component(Transform)
+                    self.camera_controller.focus_on_position(transform.position.x, transform.position.z)
+        
+        elif key == 'escape':
+            self.running = False
+            print("Exiting demonstration...")
+    
+    def _handle_camera_mouse_input(self):
+        """Handle mouse input exactly like apex-tactics.py - Orbit mode only"""
+        if not self.camera_controller:
+            return
+        
+        # Mouse drag rotation for orbit mode - exactly like apex-tactics.py
+        if held_keys['left mouse']:
+            self.camera_controller.camera_angle_y += mouse.velocity.x * 50
+            self.camera_controller.camera_angle_x = max(-80, min(80, self.camera_controller.camera_angle_x - mouse.velocity.y * 50))
     
     def _reset_demo(self):
         """Reset the demonstration to initial state"""
@@ -282,7 +348,8 @@ class Phase1Demo:
                     status += f"{system_name}: {avg_time:.2f}ms\n"
         
         # Show controls
-        status += f"\nControls: SPACE=Pause | R=Reset | P=Path | 1-4=Character | ESC=Exit"
+        status += f"\nCamera: Arrow keys=Rotate | Mouse drag=Rotate | Scroll=Zoom"
+        status += f"\nDemo: SPACE=Pause | R=Reset | P=Path | 1-4=Character | ESC=Exit"
         
         return status
     
@@ -322,6 +389,12 @@ class Phase1Demo:
             self._update_world(delta_time)
             self._update_performance_stats()
             
+            # Update camera - handle input directly in demo where globals are accessible
+            if self.camera_controller:
+                # Handle mouse input and continuous arrow keys where globals are accessible
+                self._handle_camera_mouse_input()
+                self.camera_controller.update_camera()
+            
             # Update UI
             if self.ui_text:
                 self.ui_text.text = self._get_status_text()
@@ -330,7 +403,14 @@ class Phase1Demo:
             if self.frame_count % 120 == 0:  # Every 2 seconds
                 self._demonstrate_pathfinding()
         
-        app.run()
+        # Input function is already set up in _setup_input_handlers
+        
+        print("Camera Controls:")
+        print("  Arrow keys - Rotate camera")
+        print("  Mouse drag - Rotate camera")
+        print("  Scroll wheel - Zoom in/out")
+        
+        self.app.run()
     
     def _run_console_mode(self):
         """Run in console mode without visuals"""
@@ -381,6 +461,14 @@ def main():
         return 1
     
     return 0
+
+
+# Global input function for Ursina
+def input(key):
+    """Global input handler for Ursina"""
+    global demo_instance
+    if demo_instance:
+        demo_instance.handle_input(key)
 
 
 if __name__ == "__main__":

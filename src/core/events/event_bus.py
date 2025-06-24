@@ -196,5 +196,12 @@ class EventBusStats:
             'subscriber_count': self.subscriber_count
         }
 
-# Singleton instance for easy access
-EventBus = EventBus.get_instance()
+# Create singleton instance for easy access
+_event_bus_singleton = None
+
+def get_event_bus():
+    """Get singleton EventBus instance"""
+    global _event_bus_singleton
+    if _event_bus_singleton is None:
+        _event_bus_singleton = EventBus()
+    return _event_bus_singleton

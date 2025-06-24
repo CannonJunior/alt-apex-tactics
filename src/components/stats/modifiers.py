@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 import uuid
 
-from ...core.ecs.component import BaseComponent
+from core.ecs.component import BaseComponent
 
 class ModifierType(Enum):
     """Type of stat modifier"""
@@ -46,16 +46,16 @@ class Modifier:
     """
     
     def __init__(self, 
-                 modifier_id: str = None,
-                 stat_name: str = "",
-                 modifier_type: ModifierType = ModifierType.FLAT,
-                 value: float = 0.0,
+                 stat_name: str,
+                 modifier_type: ModifierType,
+                 value: float,
+                 duration: float = 0.0,  # 0 = permanent
                  source: ModifierSource = ModifierSource.SPELL,
                  source_id: str = "",
-                 duration: float = 0.0,  # 0 = permanent
                  stacking_rule: StackingRule = StackingRule.UNLIMITED,
                  stack_limit: int = 0,  # 0 = no limit
-                 priority: int = 0):    # Higher priority applies first
+                 priority: int = 0,    # Higher priority applies first
+                 modifier_id: str = None):
         
         self.modifier_id = modifier_id or str(uuid.uuid4())
         self.stat_name = stat_name
@@ -351,7 +351,7 @@ class ModifierManager(BaseComponent):
         
         # Warn if calculation is slow
         if calculation_time > 0.001:  # 1ms target
-            from ...core.utils.logging import Logger
+            from core.utils.logging import Logger
             Logger.warning(f"Slow modifier calculation: {calculation_time*1000:.2f}ms for {stat_name}")
         
         return max(0, int(final_value))  # Ensure non-negative integer

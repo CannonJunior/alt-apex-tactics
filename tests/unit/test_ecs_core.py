@@ -18,11 +18,11 @@ from core.ecs.entity import Entity, EntityManager
 from core.ecs.component import BaseComponent, Transform, ComponentRegistry
 from core.ecs.system import BaseSystem, SystemManager
 from core.ecs.world import World
-from core.events.event_bus import EventBus, Event
+from core.events.event_bus import Event
 from core.math.vector import Vector3
 
 
-class TestComponent(BaseComponent):
+class MockTestComponent(BaseComponent):
     """Test component for unit testing"""
     
     def __init__(self, value: int = 0):
@@ -43,15 +43,15 @@ class TestComponent(BaseComponent):
         return component
 
 
-class TestSystem(BaseSystem):
+class MockTestSystem(BaseSystem):
     """Test system for unit testing"""
     
     def __init__(self):
-        super().__init__("TestSystem")
+        super().__init__("MockTestSystem")
         self.updated_entities = []
     
     def get_required_components(self):
-        return {TestComponent}
+        return {MockTestComponent}
     
     def update(self, delta_time, entities):
         self.updated_entities = entities.copy()
@@ -70,40 +70,40 @@ class TestEntityManagement:
     def test_component_addition(self):
         """Test adding components to entities"""
         entity = Entity()
-        component = TestComponent(42)
+        component = MockTestComponent(42)
         
         entity.add_component(component)
         
-        assert entity.has_component(TestComponent)
-        assert entity.get_component(TestComponent) is component
+        assert entity.has_component(MockTestComponent)
+        assert entity.get_component(MockTestComponent) is component
         assert component.entity_id == entity.id
     
     def test_component_removal(self):
         """Test removing components from entities"""
         entity = Entity()
-        component = TestComponent(42)
+        component = MockTestComponent(42)
         entity.add_component(component)
         
-        removed = entity.remove_component(TestComponent)
+        removed = entity.remove_component(MockTestComponent)
         
         assert removed is component
-        assert not entity.has_component(TestComponent)
+        assert not entity.has_component(MockTestComponent)
         assert component.entity_id is None
     
     def test_duplicate_component_error(self):
         """Test that adding duplicate component types raises error"""
         entity = Entity()
-        entity.add_component(TestComponent(1))
+        entity.add_component(MockTestComponent(1))
         
         with pytest.raises(ValueError):
-            entity.add_component(TestComponent(2))
+            entity.add_component(MockTestComponent(2))
     
     def test_entity_serialization(self):
         """Test entity serialization and deserialization"""
-        ComponentRegistry.register(TestComponent)
+        ComponentRegistry.register(MockTestComponent)
         
         entity = Entity()
-        entity.add_component(TestComponent(42))
+        entity.add_component(MockTestComponent(42))
         entity.add_component(Transform(Vector3(1, 2, 3)))
         
         # Serialize
@@ -113,9 +113,9 @@ class TestEntityManagement:
         restored_entity = Entity.from_dict(data)
         
         assert restored_entity.id == entity.id
-        assert restored_entity.has_component(TestComponent)
+        assert restored_entity.has_component(MockTestComponent)
         assert restored_entity.has_component(Transform)
-        assert restored_entity.get_component(TestComponent).value == 42
+        assert restored_entity.get_component(MockTestComponent).value == 42
 
 
 class TestEntityManager:
@@ -132,12 +132,12 @@ class TestEntityManager:
     def test_entity_with_components(self):
         """Test creating entity with initial components"""
         manager = EntityManager()
-        component = TestComponent(42)
+        component = MockTestComponent(42)
         
         entity = manager.create_entity(component)
         
-        assert entity.has_component(TestComponent)
-        assert entity.get_component(TestComponent) is component
+        assert entity.has_component(MockTestComponent)
+        assert entity.get_component(MockTestComponent) is component
     
     def test_entity_destruction(self):
         """Test entity destruction"""
@@ -156,25 +156,25 @@ class TestEntityManager:
         manager = EntityManager()
         
         # Create entities with different components
-        entity1 = manager.create_entity(TestComponent(1))
+        entity1 = manager.create_entity(MockTestComponent(1))
         entity2 = manager.create_entity(Transform())
-        entity3 = manager.create_entity(TestComponent(3), Transform())
+        entity3 = manager.create_entity(MockTestComponent(3), Transform())
         
         # Query by single component
-        test_entities = manager.get_entities_with_component(TestComponent)
+        test_entities = manager.get_entities_with_component(MockTestComponent)
         assert len(test_entities) == 2
         assert entity1 in test_entities
         assert entity3 in test_entities
         
         # Query by multiple components
-        both_components = manager.get_entities_with_components(TestComponent, Transform)
+        both_components = manager.get_entities_with_components(MockTestComponent, Transform)
         assert len(both_components) == 1
         assert entity3 in both_components
     
     def test_cleanup_destroyed_entities(self):
         """Test cleanup of destroyed entities"""
         manager = EntityManager()
-        entity = manager.create_entity(TestComponent(42))
+        entity = manager.create_entity(MockTestComponent(42))
         entity_id = entity.id
         
         manager.destroy_entity(entity_id)
@@ -189,35 +189,37 @@ class TestSystemManagement:
     
     def test_system_registration(self):
         """Test adding systems to manager"""
+        from core.events.event_bus import EventBus
         event_bus = EventBus()
         manager = SystemManager(event_bus)
-        system = TestSystem()
+        system = MockTestSystem()
         
         manager.add_system(system)
         
-        assert manager.get_system("TestSystem") is system
+        assert manager.get_system("MockTestSystem") is system
         assert manager.get_system_count() == 1
     
     def test_system_update(self):
         """Test system update with entities"""
+        from core.events.event_bus import EventBus
         event_bus = EventBus()
         manager = SystemManager(event_bus)
-        system = TestSystem()
+        system = MockTestSystem()
         manager.add_system(system)
         
         # Create test entities
         entity1 = Entity()
-        entity1.add_component(TestComponent(1))
+        entity1.add_component(MockTestComponent(1))
         entity2 = Entity()
         entity2.add_component(Transform())
         entity3 = Entity()
-        entity3.add_component(TestComponent(3))
+        entity3.add_component(MockTestComponent(3))
         
         entities = [entity1, entity2, entity3]
         
         manager.update(0.016, entities)
         
-        # TestSystem should only receive entities with TestComponent
+        # MockTestSystem should only receive entities with MockTestComponent
         assert len(system.updated_entities) == 2
         assert entity1 in system.updated_entities
         assert entity3 in system.updated_entities
@@ -225,14 +227,15 @@ class TestSystemManagement:
     
     def test_system_priority(self):
         """Test system execution order by priority"""
+        from core.events.event_bus import EventBus
         event_bus = EventBus()
         manager = SystemManager(event_bus)
         
-        system1 = TestSystem()
+        system1 = MockTestSystem()
         system1.name = "LowPriority"
         system1.priority = 10
         
-        system2 = TestSystem()
+        system2 = MockTestSystem()
         system2.name = "HighPriority"
         system2.priority = 1
         
@@ -258,12 +261,12 @@ class TestWorld:
     def test_entity_creation_through_world(self):
         """Test creating entities through world interface"""
         world = World()
-        component = TestComponent(42)
+        component = MockTestComponent(42)
         
         entity = world.create_entity(component)
         
         assert world.get_entity(entity.id) is entity
-        assert entity.has_component(TestComponent)
+        assert entity.has_component(MockTestComponent)
     
     def test_world_lifecycle(self):
         """Test world initialization and shutdown"""
@@ -280,17 +283,17 @@ class TestWorld:
     def test_world_update(self):
         """Test world update cycle"""
         world = World()
-        world.add_system(TestSystem())
+        world.add_system(MockTestSystem())
         world.initialize()
         
         # Create test entity
-        entity = world.create_entity(TestComponent(42))
+        entity = world.create_entity(MockTestComponent(42))
         
         # Update world
         world.update(0.016)
         
         # Verify system was updated
-        system = world.get_system("TestSystem")
+        system = world.get_system("MockTestSystem")
         assert len(system.updated_entities) == 1
         assert system.updated_entities[0] is entity
 
@@ -307,7 +310,7 @@ class TestPerformance:
         # Create 1000 entities
         entities = []
         for i in range(1000):
-            entity = manager.create_entity(TestComponent(i))
+            entity = manager.create_entity(MockTestComponent(i))
             entities.append(entity)
         
         creation_time = time.perf_counter() - start_time
@@ -323,14 +326,14 @@ class TestPerformance:
         # Create entities with mixed components
         for i in range(1000):
             if i % 2 == 0:
-                manager.create_entity(TestComponent(i))
+                manager.create_entity(MockTestComponent(i))
             else:
                 manager.create_entity(Transform())
         
         start_time = time.perf_counter()
         
-        # Query for TestComponent entities
-        test_entities = manager.get_entities_with_component(TestComponent)
+        # Query for MockTestComponent entities
+        test_entities = manager.get_entities_with_component(MockTestComponent)
         
         query_time = time.perf_counter() - start_time
         
@@ -340,16 +343,17 @@ class TestPerformance:
     
     def test_system_update_performance(self):
         """Test system update performance"""
+        from core.events.event_bus import EventBus
         event_bus = EventBus()
         manager = SystemManager(event_bus)
-        system = TestSystem()
+        system = MockTestSystem()
         manager.add_system(system)
         
         # Create entities
         entities = []
         for i in range(100):
             entity = Entity()
-            entity.add_component(TestComponent(i))
+            entity.add_component(MockTestComponent(i))
             entities.append(entity)
         
         start_time = time.perf_counter()

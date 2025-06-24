@@ -6,9 +6,9 @@ Will integrate with grid system once implemented.
 """
 
 from typing import Set, Type, List
-from ..core.ecs.system import BaseSystem
-from ..core.ecs.entity import Entity
-from ..core.ecs.component import BaseComponent, Transform
+from core.ecs.system import BaseSystem
+from core.ecs.entity import Entity
+from core.ecs.component import BaseComponent, Transform
 
 class MovementSystem(BaseSystem):
     """
@@ -43,10 +43,10 @@ class MovementSystem(BaseSystem):
     
     def initialize(self):
         """Initialize movement system"""
-        from ..core.utils.logging import Logger
+        from core.utils.logging import Logger
         Logger.info("MovementSystem initialized")
     
     def shutdown(self):
         """Shutdown movement system"""
-        from ..core.utils.logging import Logger
+        from core.utils.logging import Logger
         Logger.info("MovementSystem shutdown")

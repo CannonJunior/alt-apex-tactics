@@ -11,8 +11,8 @@ import time
 from .entity import Entity, EntityManager
 from .system import BaseSystem, SystemManager
 from .component import BaseComponent
-from ..events.event_bus import EventBus
-from ..events.event_types import (
+from core.events.event_bus import EventBus
+from core.events.event_types import (
     EntityCreatedEvent, EntityDestroyedEvent,
     ComponentAddedEvent, ComponentRemovedEvent,
     GameStartedEvent, GamePausedEvent, GameResumedEvent, GameEndedEvent
@@ -28,8 +28,8 @@ class World:
     
     def __init__(self):
         self.entity_manager = EntityManager()
-        self.system_manager = SystemManager(EventBus)
-        self.event_bus = EventBus
+        self.event_bus = EventBus()
+        self.system_manager = SystemManager(self.event_bus)
         
         self.running = False
         self.paused = False
@@ -212,7 +212,7 @@ class World:
         
         # Check performance
         if frame_time > self.performance_warning_threshold:
-            from ..events.event_types import PerformanceWarningEvent
+            from core.events.event_types import PerformanceWarningEvent
             self.event_bus.publish(PerformanceWarningEvent(
                 "World", frame_time, self.performance_warning_threshold
             ))

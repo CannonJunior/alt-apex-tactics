@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 
-from ...core.ecs.component import BaseComponent
+from core.ecs.component import BaseComponent
 
 class ResourceType(Enum):
     """Resource type enumeration"""
