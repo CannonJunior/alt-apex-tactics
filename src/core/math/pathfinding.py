@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from .vector import Vector2Int
 from .grid import TacticalGrid
+from core.utils.object_pool import get_pathnode_pool
 
 @dataclass
 class PathNode:
@@ -62,9 +63,11 @@ class AStarPathfinder:
     
     def __init__(self, grid: TacticalGrid):
         self.grid = grid
-        self.path_cache: Dict[Tuple[Vector2Int, Vector2Int], PathfindingResult] = {}
-        self.cache_max_size = 1000
+        # Use LRU cache for better cache performance
+        from core.utils.lru_cache import LRUCache
+        self.path_cache = LRUCache(max_size=1000)
         self.max_search_nodes = 500  # Limit for performance
+        self.node_pool = get_pathnode_pool()  # Object pool for PathNode instances
     
     def find_path(self, start: Vector2Int, goal: Vector2Int,
                   movement_cost_func: Optional[Callable[[Vector2Int, Vector2Int], float]] = None,
@@ -85,8 +88,9 @@ class AStarPathfinder:
         
         # Check cache first
         cache_key = (start, goal)
-        if cache_key in self.path_cache:
-            cached_result = self.path_cache[cache_key]
+        cached_result = self.path_cache.get(cache_key)
+        if cached_result is not None:
+            # Update search time for cached result
             cached_result.search_time = time.perf_counter() - search_start_time
             return cached_result
         
@@ -107,10 +111,12 @@ class AStarPathfinder:
         open_set = []
         closed_set: Set[Vector2Int] = set()
         nodes: Dict[Vector2Int, PathNode] = {}
+        used_nodes: List[PathNode] = []  # Track nodes for cleanup
         
-        # Initialize start node
-        start_node = PathNode(start, 0.0, self._heuristic(start, goal))
+        # Initialize start node using object pool
+        start_node = self.node_pool.get_node(start, 0.0, self._heuristic(start, goal))
         nodes[start] = start_node
+        used_nodes.append(start_node)
         heapq.heappush(open_set, start_node)
         
         nodes_explored = 0
@@ -125,6 +131,10 @@ class AStarPathfinder:
                 search_time = time.perf_counter() - search_start_time
                 result = PathfindingResult(path, current_node.g_cost, search_time, nodes_explored)
                 self._cache_result(cache_key, result)
+                
+                # Return used nodes to pool for reuse
+                self.node_pool.return_nodes(used_nodes)
+                
                 return result
             
             closed_set.add(current_pos)
@@ -148,13 +158,14 @@ class AStarPathfinder:
                 
                 # Check if this is a better path to the neighbor
                 if neighbor_pos not in nodes:
-                    neighbor_node = PathNode(
+                    neighbor_node = self.node_pool.get_node(
                         neighbor_pos,
                         tentative_g_cost,
                         self._heuristic(neighbor_pos, goal),
                         current_node
                     )
                     nodes[neighbor_pos] = neighbor_node
+                    used_nodes.append(neighbor_node)
                     heapq.heappush(open_set, neighbor_node)
                     
                 elif tentative_g_cost < nodes[neighbor_pos].g_cost:
@@ -168,6 +179,10 @@ class AStarPathfinder:
         search_time = time.perf_counter() - search_start_time
         result = PathfindingResult([], 0.0, search_time, nodes_explored)
         self._cache_result(cache_key, result)
+        
+        # Return used nodes to pool for reuse
+        self.node_pool.return_nodes(used_nodes)
+        
         return result
     
     def find_reachable_positions(self, start: Vector2Int, max_movement: float) -> List[Vector2Int]:
@@ -256,27 +271,24 @@ class AStarPathfinder:
     
     def _cache_result(self, cache_key: Tuple[Vector2Int, Vector2Int], 
                      result: PathfindingResult):
-        """Cache pathfinding result"""
-        # Limit cache size
-        if len(self.path_cache) >= self.cache_max_size:
-            # Remove oldest entries (simple FIFO)
-            oldest_keys = list(self.path_cache.keys())[:self.cache_max_size // 2]
-            for key in oldest_keys:
-                del self.path_cache[key]
-        
-        self.path_cache[cache_key] = result
+        """Cache pathfinding result using LRU cache"""
+        self.path_cache.put(cache_key, result)
     
     def clear_cache(self):
         """Clear pathfinding cache"""
         self.path_cache.clear()
     
     def get_cache_stats(self) -> Dict[str, any]:
-        """Get cache statistics"""
+        """Get pathfinding cache performance statistics"""
+        cache_stats = self.path_cache.get_stats()
+        pool_stats = self.node_pool.get_stats()
+        
         return {
-            'cache_size': len(self.path_cache),
-            'cache_max_size': self.cache_max_size,
-            'cache_hit_ratio': 0.0  # Would need to track hits/misses
+            'cache': cache_stats,
+            'node_pool': pool_stats,
+            'total_memory_savings': pool_stats.get('memory_savings', 0)
         }
+    
 
 class JumpPointSearch:
     """

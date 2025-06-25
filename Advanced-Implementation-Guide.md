@@ -484,7 +484,14 @@ class OptimizedPathfinding:
 - Combat animation framework
 - Performance optimization and profiling
 
-**Phase 5: Polish and Testing (Weeks 12-13)**
+**Phase 4.5: Portable UI Framework (Weeks 11.5-12.5)**
+- Multi-engine portable UI architecture design
+- Ursina-based start screen with main menu system
+- Basic multi-panel UI framework implementation
+- Component abstraction layer for engine portability
+- Game state management integration
+
+**Phase 5: Polish and Testing (Weeks 13-14)**
 - Comprehensive testing suite
 - Performance benchmarking
 - Unity portability validation

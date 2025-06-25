@@ -133,6 +133,11 @@ class TacticalGrid:
         # Cache for pathfinding optimization
         self._pathfinding_cache: Dict[Tuple[Vector2Int, Vector2Int], List[Vector2Int]] = {}
         self._cache_max_size = 1000
+        
+        # Pre-compute neighbor relationships for performance
+        self._neighbor_cache: Dict[Vector2Int, List[Vector2Int]] = {}
+        self._diagonal_neighbor_cache: Dict[Vector2Int, List[Vector2Int]] = {}
+        self._precompute_neighbors()
     
     def get_cell(self, grid_pos: Vector2Int) -> Optional[GridCell]:
         """
@@ -240,10 +245,23 @@ class TacticalGrid:
         
         return Vector3(world_x, height, world_z)
     
+    def is_valid_position(self, grid_pos: Vector2Int) -> bool:
+        """
+        Check if grid position is within bounds.
+        
+        Args:
+            grid_pos: Grid coordinates to check
+            
+        Returns:
+            True if position is valid
+        """
+        return (0 <= grid_pos.x < self.width and 
+                0 <= grid_pos.y < self.height)
+    
     def get_neighbors(self, grid_pos: Vector2Int, 
                      include_diagonals: bool = True) -> List[Vector2Int]:
         """
-        Get neighboring grid positions.
+        Get neighboring grid positions using pre-computed cache.
         
         Args:
             grid_pos: Center position
@@ -252,33 +270,11 @@ class TacticalGrid:
         Returns:
             List of valid neighboring positions
         """
-        neighbors = []
-        
-        # Cardinal directions
-        directions = [
-            Vector2Int(0, 1),   # North
-            Vector2Int(1, 0),   # East  
-            Vector2Int(0, -1),  # South
-            Vector2Int(-1, 0)   # West
-        ]
-        
+        # Use pre-computed neighbor cache for better performance
         if include_diagonals:
-            directions.extend([
-                Vector2Int(1, 1),   # Northeast
-                Vector2Int(1, -1),  # Southeast
-                Vector2Int(-1, -1), # Southwest
-                Vector2Int(-1, 1)   # Northwest
-            ])
-        
-        for direction in directions:
-            neighbor_pos = grid_pos + direction
-            
-            # Check bounds
-            if (0 <= neighbor_pos.x < self.width and 
-                0 <= neighbor_pos.y < self.height):
-                neighbors.append(neighbor_pos)
-        
-        return neighbors
+            return self._diagonal_neighbor_cache.get(grid_pos, [])
+        else:
+            return self._neighbor_cache.get(grid_pos, [])
     
     def get_movement_cost(self, from_pos: Vector2Int, to_pos: Vector2Int) -> float:
         """
@@ -413,6 +409,48 @@ class TacticalGrid:
     def _invalidate_pathfinding_cache(self):
         """Clear pathfinding cache when grid changes"""
         self._pathfinding_cache.clear()
+    
+    def _precompute_neighbors(self):
+        """Pre-compute neighbor relationships for all grid positions"""
+        for x in range(self.width):
+            for y in range(self.height):
+                grid_pos = Vector2Int(x, y)
+                
+                # Compute neighbors without diagonals
+                neighbors = []
+                diagonal_neighbors = []
+                
+                # Cardinal directions
+                directions = [
+                    Vector2Int(0, 1),   # North
+                    Vector2Int(1, 0),   # East  
+                    Vector2Int(0, -1),  # South
+                    Vector2Int(-1, 0)   # West
+                ]
+                
+                for direction in directions:
+                    neighbor_pos = grid_pos + direction
+                    if (0 <= neighbor_pos.x < self.width and 
+                        0 <= neighbor_pos.y < self.height):
+                        neighbors.append(neighbor_pos)
+                        diagonal_neighbors.append(neighbor_pos)
+                
+                # Diagonal directions
+                diagonal_dirs = [
+                    Vector2Int(1, 1),   # Northeast
+                    Vector2Int(1, -1),  # Southeast
+                    Vector2Int(-1, -1), # Southwest
+                    Vector2Int(-1, 1)   # Northwest
+                ]
+                
+                for direction in diagonal_dirs:
+                    neighbor_pos = grid_pos + direction
+                    if (0 <= neighbor_pos.x < self.width and 
+                        0 <= neighbor_pos.y < self.height):
+                        diagonal_neighbors.append(neighbor_pos)
+                
+                self._neighbor_cache[grid_pos] = neighbors
+                self._diagonal_neighbor_cache[grid_pos] = diagonal_neighbors
     
     def generate_height_map(self, seed: int = 42, roughness: float = 0.5):
         """

@@ -8,6 +8,7 @@ dependencies = [
     "pytest>=8.4.1",
     "psutil>=6.1.0",
     "ursina>=7.0.0",
+    "fastmcp>=2.9.0",
 ]
 
 [tool.pytest.ini_options]

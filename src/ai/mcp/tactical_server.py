@@ -20,6 +20,7 @@ from core.ecs.world import World
 from core.ecs.entity import Entity
 from core.math.vector import Vector3, Vector2Int
 from core.utils.logging import Logger
+from .tactical_ai_tools import TacticalAITools
 
 class TacticalMCPServer:
     """
@@ -34,6 +35,9 @@ class TacticalMCPServer:
         self.port = port
         self.mcp_server = None
         self.running = False
+        
+        # Initialize advanced AI tools
+        self.ai_tools = TacticalAITools(world)
         
         if FastMCP is not None:
             self.mcp_server = FastMCP("TacticalRPG_AI_Server")
@@ -133,6 +137,191 @@ class TacticalMCPServer:
                     "success": False,
                     "error": str(e)
                 }
+        
+        # Advanced AI tools
+        @self.mcp_server.tool
+        def analyze_battlefield_comprehensive(grid_width: int = 8, grid_height: int = 8) -> Dict[str, Any]:
+            """
+            Perform comprehensive battlefield analysis using advanced AI.
+            
+            Args:
+                grid_width: Width of tactical grid
+                grid_height: Height of tactical grid
+                
+            Returns:
+                Comprehensive tactical analysis with recommendations
+            """
+            try:
+                # Get all units from world
+                all_units = list(self.world.get_all_entities())
+                
+                # Perform analysis using AI tools
+                analysis = self.ai_tools.analyze_battlefield(all_units, (grid_width, grid_height))
+                
+                return {
+                    "success": True,
+                    "analysis": {
+                        "unit_count": analysis.unit_count,
+                        "average_power": analysis.average_power,
+                        "formation_strength": analysis.formation_strength,
+                        "terrain_advantage": analysis.terrain_advantage,
+                        "recommended_action": analysis.recommended_action,
+                        "confidence": analysis.confidence,
+                        "threat_assessment": analysis.threat_assessment
+                    },
+                    "timestamp": time.time()
+                }
+                
+            except Exception as e:
+                Logger.error(f"Error in analyze_battlefield_comprehensive: {e}")
+                return {"success": False, "error": str(e)}
+        
+        @self.mcp_server.tool
+        def evaluate_unit_detailed(unit_id: str) -> Dict[str, Any]:
+            """
+            Detailed unit evaluation using advanced AI analysis.
+            
+            Args:
+                unit_id: ID of unit to evaluate
+                
+            Returns:
+                Detailed unit evaluation with tactical recommendations
+            """
+            try:
+                entity = self.world.get_entity(unit_id)
+                if not entity:
+                    return {"success": False, "error": f"Unit {unit_id} not found"}
+                
+                all_units = list(self.world.get_all_entities())
+                evaluation = self.ai_tools.evaluate_unit(entity, all_units)
+                
+                return {
+                    "success": True,
+                    "evaluation": {
+                        "unit_id": evaluation.unit_id,
+                        "combat_effectiveness": evaluation.combat_effectiveness,
+                        "positioning_score": evaluation.positioning_score,
+                        "threat_level": evaluation.threat_level,
+                        "tactical_value": evaluation.tactical_value,
+                        "recommended_role": evaluation.recommended_role
+                    },
+                    "timestamp": time.time()
+                }
+                
+            except Exception as e:
+                Logger.error(f"Error in evaluate_unit_detailed: {e}")
+                return {"success": False, "error": str(e)}
+        
+        @self.mcp_server.tool
+        def find_optimal_position_ai(unit_id: str, grid_width: int = 8, grid_height: int = 8) -> Dict[str, Any]:
+            """
+            Find optimal position for unit using AI tactical analysis.
+            
+            Args:
+                unit_id: ID of unit to position
+                grid_width: Width of tactical grid
+                grid_height: Height of tactical grid
+                
+            Returns:
+                Optimal position recommendation
+            """
+            try:
+                entity = self.world.get_entity(unit_id)
+                if not entity:
+                    return {"success": False, "error": f"Unit {unit_id} not found"}
+                
+                all_units = list(self.world.get_all_entities())
+                optimal_pos = self.ai_tools.find_optimal_position(entity, all_units, (grid_width, grid_height))
+                
+                if optimal_pos:
+                    return {
+                        "success": True,
+                        "optimal_position": {
+                            "x": optimal_pos.x,
+                            "y": optimal_pos.y
+                        },
+                        "unit_id": unit_id,
+                        "timestamp": time.time()
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": "No optimal position found",
+                        "unit_id": unit_id
+                    }
+                
+            except Exception as e:
+                Logger.error(f"Error in find_optimal_position_ai: {e}")
+                return {"success": False, "error": str(e)}
+        
+        @self.mcp_server.tool
+        def select_optimal_target_ai(attacker_id: str) -> Dict[str, Any]:
+            """
+            Select optimal target using AI analysis.
+            
+            Args:
+                attacker_id: ID of attacking unit
+                
+            Returns:
+                Optimal target recommendation
+            """
+            try:
+                attacker = self.world.get_entity(attacker_id)
+                if not attacker:
+                    return {"success": False, "error": f"Attacker {attacker_id} not found"}
+                
+                # Get potential targets (simplified - in full implementation would filter by team)
+                all_units = list(self.world.get_all_entities())
+                potential_targets = [unit for unit in all_units if unit.id != attacker_id]
+                
+                optimal_target = self.ai_tools.select_optimal_target(attacker, potential_targets)
+                
+                if optimal_target:
+                    return {
+                        "success": True,
+                        "optimal_target": {
+                            "unit_id": optimal_target.id
+                        },
+                        "attacker_id": attacker_id,
+                        "timestamp": time.time()
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": "No valid target found",
+                        "attacker_id": attacker_id
+                    }
+                
+            except Exception as e:
+                Logger.error(f"Error in select_optimal_target_ai: {e}")
+                return {"success": False, "error": str(e)}
+        
+        @self.mcp_server.tool
+        def plan_tactical_sequence_ai(turns: int = 3) -> Dict[str, Any]:
+            """
+            Plan multi-turn tactical sequence using AI.
+            
+            Args:
+                turns: Number of turns to plan ahead
+                
+            Returns:
+                Multi-turn tactical plan
+            """
+            try:
+                all_units = list(self.world.get_all_entities())
+                tactical_plan = self.ai_tools.plan_tactical_sequence(all_units, turns)
+                
+                return {
+                    "success": True,
+                    "tactical_plan": tactical_plan,
+                    "turns_planned": turns,
+                    "units_count": len(all_units),
+                    "timestamp": time.time()
+                }
+                
+            except Exception as e:
+                Logger.error(f"Error in plan_tactical_sequence_ai: {e}")
+                return {"success": False, "error": str(e)}
         
         @self.mcp_server.tool
         def evaluate_position_value(position_x: float, position_y: float, 

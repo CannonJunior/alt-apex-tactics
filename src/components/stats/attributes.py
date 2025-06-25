@@ -47,6 +47,10 @@ class AttributeStats(BaseComponent):
         self._derived_cache: Dict[str, int] = {}
         self._cache_timestamp = 0.0
         self._cache_valid = False
+        
+        # Current health and mana (initialized after derived stats are calculated)
+        self._current_hp = None
+        self._current_mp = None
     
     @property
     def derived_stats(self) -> Dict[str, int]:
@@ -105,6 +109,40 @@ class AttributeStats(BaseComponent):
         self._cache_valid = True
         
         return self._derived_cache.copy()
+    
+    @property
+    def max_hp(self) -> int:
+        """Get maximum health points"""
+        return self.derived_stats['hp']
+    
+    @property
+    def current_hp(self) -> int:
+        """Get current health points"""
+        if self._current_hp is None:
+            self._current_hp = self.max_hp
+        return self._current_hp
+    
+    @current_hp.setter
+    def current_hp(self, value: int):
+        """Set current health points"""
+        self._current_hp = max(0, min(value, self.max_hp))
+    
+    @property
+    def max_mp(self) -> int:
+        """Get maximum mana points"""
+        return self.derived_stats['mp']
+    
+    @property
+    def current_mp(self) -> int:
+        """Get current mana points"""
+        if self._current_mp is None:
+            self._current_mp = self.max_mp
+        return self._current_mp
+    
+    @current_mp.setter
+    def current_mp(self, value: int):
+        """Set current mana points"""
+        self._current_mp = max(0, min(value, self.max_mp))
     
     def get_attribute_total(self) -> int:
         """Get sum of all base attributes"""
@@ -172,7 +210,11 @@ class AttributeStats(BaseComponent):
             'speed': self.speed,
             
             # Include derived stats for completeness
-            'derived_stats': self.derived_stats
+            'derived_stats': self.derived_stats,
+            
+            # Current health and mana
+            'current_hp': self.current_hp,
+            'current_mp': self.current_mp
         })
         return base_dict
     
@@ -195,6 +237,12 @@ class AttributeStats(BaseComponent):
         attributes.entity_id = data.get('entity_id')
         attributes.created_at = data.get('created_at', time.time())
         attributes.component_id = data.get('component_id', attributes.component_id)
+        
+        # Restore current health and mana if provided
+        if 'current_hp' in data:
+            attributes._current_hp = data['current_hp']
+        if 'current_mp' in data:
+            attributes._current_mp = data['current_mp']
         
         return attributes
     

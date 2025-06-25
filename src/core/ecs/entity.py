@@ -183,6 +183,11 @@ class EntityManager:
         self._entities: Dict[str, Entity] = {}
         self._entities_by_components: Dict[Type[BaseComponent], Set[str]] = {}
         self._destroyed_entities: Set[str] = set()
+        
+        # Performance optimization: Cache filtered entity query results
+        self._entity_query_cache: Dict[tuple, List[Entity]] = {}
+        self._cache_invalidation_counter = 0
+        self._max_cache_size = 50  # Limit cache size to prevent memory bloat
     
     def create_entity(self, *components: BaseComponent) -> Entity:
         """
@@ -252,6 +257,7 @@ class EntityManager:
     def get_entities_with_components(self, *component_types: Type[BaseComponent]) -> List[Entity]:
         """
         Get all entities that have ALL specified component types.
+        Uses caching for improved performance on repeated queries.
         
         Args:
             component_types: Component types that must all be present
@@ -262,6 +268,14 @@ class EntityManager:
         if not component_types:
             return list(self._entities.values())
         
+        # Check cache first
+        cache_key = self._get_cache_key(*component_types)
+        if cache_key in self._entity_query_cache:
+            # Return cached result, but filter out destroyed entities
+            cached_entities = self._entity_query_cache[cache_key]
+            return [entity for entity in cached_entities if entity.id in self._entities and entity.active]
+        
+        # Cache miss - compute result
         # Start with entities that have the first component type
         result_ids = self._entities_by_components.get(component_types[0], set()).copy()
         
@@ -270,7 +284,31 @@ class EntityManager:
             component_entity_ids = self._entities_by_components.get(component_type, set())
             result_ids &= component_entity_ids
         
-        return [self._entities[eid] for eid in result_ids if eid in self._entities]
+        # Build result list
+        result_entities = [self._entities[eid] for eid in result_ids if eid in self._entities and self._entities[eid].active]
+        
+        # Cache the result
+        self._manage_cache_size()
+        self._entity_query_cache[cache_key] = result_entities
+        
+        return result_entities
+    
+    def _invalidate_query_cache(self):
+        """Invalidate entity query cache when components change"""
+        self._entity_query_cache.clear()
+        self._cache_invalidation_counter += 1
+    
+    def _get_cache_key(self, *component_types: Type[BaseComponent]) -> tuple:
+        """Generate cache key for component query"""
+        return tuple(sorted(comp.__name__ for comp in component_types))
+    
+    def _manage_cache_size(self):
+        """Ensure cache doesn't grow too large"""
+        if len(self._entity_query_cache) > self._max_cache_size:
+            # Remove oldest half of cache entries (simple eviction)
+            keys_to_remove = list(self._entity_query_cache.keys())[:self._max_cache_size // 2]
+            for key in keys_to_remove:
+                del self._entity_query_cache[key]
     
     def get_all_entities(self) -> List[Entity]:
         """Get all active entities"""
@@ -290,6 +328,10 @@ class EntityManager:
                 # Remove from entities dict
                 del self._entities[entity_id]
         
+        # Invalidate query cache when entities are destroyed
+        if self._destroyed_entities:
+            self._invalidate_query_cache()
+            
         self._destroyed_entities.clear()
     
     def _register_entity(self, entity: Entity):
@@ -301,6 +343,10 @@ class EntityManager:
             if component_type not in self._entities_by_components:
                 self._entities_by_components[component_type] = set()
             self._entities_by_components[component_type].add(entity.id)
+        
+        # Invalidate query cache when new entities are registered
+        if entity.get_component_types():
+            self._invalidate_query_cache()
     
     def get_entity_count(self) -> int:
         """Get total number of active entities"""

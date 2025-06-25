@@ -3,12 +3,25 @@ Event Bus for Decoupled System Communication
 
 Implements publish-subscribe pattern for system communication.
 Enables systems to communicate without direct dependencies.
+Includes priority queue optimizations for performance.
 """
 
-from typing import Dict, List, Callable, Type, Any
+from typing import Dict, List, Callable, Type, Any, Optional
 from collections import defaultdict
 import time
 import uuid
+import heapq
+from enum import Enum
+
+
+class EventPriority(Enum):
+    """Priority levels for event processing"""
+    IMMEDIATE = 0      # Process immediately (UI, input)
+    HIGH = 1          # High priority (combat, state changes)
+    NORMAL = 2        # Normal priority (movement, animations)
+    LOW = 3           # Low priority (background tasks, logging)
+    DEFERRED = 4      # Process at end of frame (cleanup, stats)
+
 
 class Event:
     """
@@ -17,9 +30,10 @@ class Event:
     Events are immutable data objects that represent something that happened.
     """
     
-    def __init__(self):
+    def __init__(self, priority: EventPriority = EventPriority.NORMAL):
         self.event_id = str(uuid.uuid4())
         self.timestamp = time.time()
+        self.priority = priority
         self.handled = False
     
     def mark_handled(self):
@@ -32,24 +46,51 @@ class Event:
             'event_type': self.__class__.__name__,
             'event_id': self.event_id,
             'timestamp': self.timestamp,
+            'priority': self.priority.name,
             'handled': self.handled
         }
+
+
+class PriorityEvent:
+    """
+    Wrapper for events in priority queue.
+    
+    Implements comparison operators for heapq priority queue.
+    """
+    
+    def __init__(self, priority: int, event_id: str, event: Event):
+        self.priority = priority
+        self.event_id = event_id  # For stable ordering
+        self.event = event
+    
+    def __lt__(self, other):
+        if self.priority != other.priority:
+            return self.priority < other.priority
+        return self.event_id < other.event_id  # Stable ordering
+    
+    def __eq__(self, other):
+        return self.priority == other.priority and self.event_id == other.event_id
 
 class EventBus:
     """
     Central event bus for publish-subscribe communication.
     
     Allows systems to communicate without knowing about each other.
-    Events are processed synchronously to maintain deterministic order.
+    Events are processed with priority queues for optimal performance.
     """
     
     _instance = None
     
-    def __init__(self):
+    def __init__(self, use_priority_queue: bool = True):
         self._subscribers: Dict[Type[Event], List[Callable]] = defaultdict(list)
         self._event_queue: List[Event] = []
+        self._priority_queue: List[PriorityEvent] = []  # Priority queue for events
+        self._immediate_events: List[Event] = []  # Immediate processing events
+        self._batch_events: Dict[EventPriority, List[Event]] = defaultdict(list)  # Batched events
         self._processing = False
+        self._use_priority_queue = use_priority_queue
         self._stats = EventBusStats()
+        self._event_counter = 0  # For stable ordering
     
     @classmethod
     def get_instance(cls) -> 'EventBus':
@@ -86,16 +127,31 @@ class EventBus:
     
     def publish(self, event: Event):
         """
-        Publish event to all subscribers.
+        Publish event to all subscribers with priority handling.
         
         Args:
             event: Event to publish
         """
-        if self._processing:
-            # Queue event if we're already processing events
-            self._event_queue.append(event)
+        if event.priority == EventPriority.IMMEDIATE:
+            # Process immediate events right away
+            self._immediate_events.append(event)
+            if not self._processing:
+                self._process_immediate_events()
+        elif self._use_priority_queue:
+            # Use priority queue for optimal ordering
+            self._event_counter += 1
+            priority_event = PriorityEvent(
+                event.priority.value, 
+                f"{self._event_counter:010d}",
+                event
+            )
+            heapq.heappush(self._priority_queue, priority_event)
         else:
-            self._process_event(event)
+            # Fall back to simple queue
+            if self._processing:
+                self._event_queue.append(event)
+            else:
+                self._process_event(event)
     
     def publish_immediate(self, event: Event):
         """
@@ -108,11 +164,28 @@ class EventBus:
         """
         self._process_event(event)
     
-    def process_events(self):
+    def publish_batch(self, events: List[Event]):
         """
-        Process all queued events.
+        Publish multiple events efficiently in a batch.
         
-        Call this once per frame to process events in order.
+        Args:
+            events: List of events to publish
+        """
+        for event in events:
+            self.publish(event)
+    
+    def _process_immediate_events(self):
+        """Process all immediate priority events"""
+        while self._immediate_events:
+            event = self._immediate_events.pop(0)
+            self._process_event(event)
+    
+    def process_events(self, max_events_per_frame: int = 100):
+        """
+        Process all queued events with priority handling.
+        
+        Args:
+            max_events_per_frame: Maximum events to process per frame
         """
         if self._processing:
             return  # Prevent recursive processing
@@ -120,9 +193,23 @@ class EventBus:
         self._processing = True
         
         try:
-            while self._event_queue:
-                event = self._event_queue.pop(0)
-                self._process_event(event)
+            # Process immediate events first
+            self._process_immediate_events()
+            
+            # Process priority queue events
+            events_processed = 0
+            if self._use_priority_queue:
+                while self._priority_queue and events_processed < max_events_per_frame:
+                    priority_event = heapq.heappop(self._priority_queue)
+                    self._process_event(priority_event.event)
+                    events_processed += 1
+            else:
+                # Fall back to simple queue processing
+                while self._event_queue and events_processed < max_events_per_frame:
+                    event = self._event_queue.pop(0)
+                    self._process_event(event)
+                    events_processed += 1
+                    
         finally:
             self._processing = False
     
@@ -171,8 +258,32 @@ class EventBus:
             return len(self._subscribers.get(event_type, []))
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get event bus statistics"""
-        return self._stats.to_dict()
+        """Get event bus statistics with queue information"""
+        stats = self._stats.to_dict()
+        stats.update({
+            'priority_queue_size': len(self._priority_queue),
+            'simple_queue_size': len(self._event_queue),
+            'immediate_queue_size': len(self._immediate_events),
+            'using_priority_queue': self._use_priority_queue,
+            'events_in_queues': len(self._priority_queue) + len(self._event_queue) + len(self._immediate_events)
+        })
+        return stats
+    
+    def clear_all_queues(self):
+        """Clear all event queues (useful for testing)"""
+        self._event_queue.clear()
+        self._priority_queue.clear()
+        self._immediate_events.clear()
+        self._batch_events.clear()
+    
+    def get_queue_sizes(self) -> Dict[str, int]:
+        """Get sizes of all event queues"""
+        return {
+            'priority_queue': len(self._priority_queue),
+            'simple_queue': len(self._event_queue),
+            'immediate_queue': len(self._immediate_events),
+            'total': len(self._priority_queue) + len(self._event_queue) + len(self._immediate_events)
+        }
     
     def reset_stats(self):
         """Reset statistics counters"""
