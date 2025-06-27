@@ -1,130 +1,90 @@
 """
-Apex Tactics - Modernized with Modular Components
+Tactical RPG Main Game Controller
 
-This file has been updated to use the modular ECS architecture from src/ while 
-maintaining backwards compatibility with the original monolithic structure.
-
-Components Replaced:
-- UnitType enum → src/components/gameplay/unit_type.py  
-- Unit class → ECS entities with AttributeStats, MovementComponent, etc.
-- BattleGrid → src/core/math/grid.py (TacticalGrid) with legacy wrapper
-- TurnManager → src/game/battle/turn_manager.py with legacy wrapper
-
-Components Preserved:
-- CameraController (as requested)
-- TacticalRPG main class (enhanced with ECS World)
-- ControlPanel (preserved, could be enhanced later)
-- Ursina-specific visual components (GridTile, UnitEntity) 
-- Main game loop and app initialization
-
-The system now runs both legacy and modular components in parallel, with the ECS 
-World providing enhanced performance and the legacy wrappers ensuring compatibility.
+Central controller managing all aspects of the tactical RPG game.
+Extracted from apex-tactics.py for better modularity and organization.
 """
 
-from ursina import *
-import sys
-import os
+from typing import List, Optional, Tuple, Dict, Any
 
-# Add src directory to Python path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+try:
+    from ursina import Entity, color, destroy, Button, Text, WindowPanel
+    URSINA_AVAILABLE = True
+except ImportError:
+    URSINA_AVAILABLE = False
 
-# Import modular components
+# Core ECS imports
 from core.ecs.world import World
-from core.ecs.entity import Entity as ECSEntity
-from components.stats.attributes import AttributeStats
-from components.gameplay.unit_type import UnitType, UnitTypeComponent
-from components.movement.movement import MovementComponent
-from components.combat.attack import AttackComponent
-from components.combat.defense import DefenseComponent
+from core.math.pathfinding import AStarPathfinder
+
+# Component imports
+from components.gameplay.unit_type import UnitType
 from components.combat.damage import AttackType
-from core.math.grid import TacticalGrid
-from core.math.vector import Vector2Int
-from game.battle.turn_manager import TurnManager as ModularTurnManager
-from ui.visual.grid_visualizer import GridVisualizer
-from ui.visual.tile_highlighter import TileHighlighter
-from ui.interaction.interactive_tile import InteractiveTile
-from ui.interaction.interaction_manager import InteractionManager
-from ui.camera.camera_controller import CameraController
-from ui.panels.control_panel import ControlPanel
-from ui.visual.unit_renderer import UnitEntity
+
+# Legacy wrapper imports
 from game.legacy.unit_wrapper import Unit
 from game.legacy.battle_grid_wrapper import BattleGrid
 from game.legacy.turn_manager_wrapper import TurnManager
-from game.factories.unit_factory import create_unit_entity
-from game.controllers.tactical_rpg_controller import TacticalRPG
 
-import random
-import math
-
-app = Ursina()
-
-# Create a simple ground plane for better visibility  
-ground = Entity(model='plane', texture='white_cube', color=color.dark_gray, scale=(20, 1, 20), position=(4, -0.1, 4))
-
-def create_clean_grid_lines():
-    """Create clean visual grid lines like in phase4_visual_demo"""
-    grid_size = 8  # Match the BattleGrid size
-    line_color = color.Color(0.4, 0.4, 0.4, 0.5)
-    
-    # Vertical lines
-    for x in range(grid_size + 1):
-        line = Entity(
-            model='cube',
-            color=line_color,
-            scale=(0.02, 0.01, grid_size),
-            position=(x, 0, grid_size / 2)
-        )
-    
-    # Horizontal lines  
-    for z in range(grid_size + 1):
-        line = Entity(
-            model='cube', 
-            color=line_color,
-            scale=(grid_size, 0.01, 0.02),
-            position=(grid_size / 2, 0, z)
-        )
-
-# Create the clean grid
-create_clean_grid_lines()
-
-# Mouse detection now handled in the input() function using world coordinates
+# UI system imports
+from ui.camera.camera_controller import CameraController
+from ui.visual.grid_visualizer import GridVisualizer
+from ui.visual.tile_highlighter import TileHighlighter
+from ui.visual.unit_renderer import UnitEntity
+from ui.interaction.interaction_manager import InteractionManager
 
 
-
-# Camera Control System
-
-# Visual Components
-# GridTile class removed - using modular GridVisualizer system instead
-
-
-# Main Game Controller
 class TacticalRPG:
-    def __init__(self):
+    """
+    Main game controller for the tactical RPG.
+    
+    Manages all game systems including:
+    - ECS World and entities
+    - Grid and unit management
+    - Turn management and combat flow
+    - Camera controls and visual systems
+    - User input and interaction
+    """
+    
+    def __init__(self, control_panel_callback: Optional[callable] = None):
+        """
+        Initialize the tactical RPG game controller.
+        
+        Args:
+            control_panel_callback: Optional callback to get control panel reference
+        """
+        if not URSINA_AVAILABLE:
+            raise ImportError("Ursina is required for TacticalRPG")
+        
         # Initialize ECS World
         self.world = World()
         
         # Legacy components for backwards compatibility
         self.grid = BattleGrid()
-        self.units = []
-        self.unit_entities = []
-        self.turn_manager = None
-        self.selected_unit = None
-        self.current_path = []  # Track the selected movement path
-        self.path_cursor = None  # Current position in path selection
-        self.movement_modal = None  # Reference to movement confirmation modal
-        self.action_modal = None  # Reference to action selection modal
-        self.current_mode = None  # Track current action mode: 'move', 'attack', etc.
-        self.attack_modal = None  # Reference to attack confirmation modal
-        self.attack_target_tile = None  # Currently targeted attack tile
+        self.units: List[Unit] = []
+        self.unit_entities: List[UnitEntity] = []
+        self.turn_manager: Optional[TurnManager] = None
+        self.selected_unit: Optional[Unit] = None
+        self.current_path: List[Tuple[int, int]] = []  # Track the selected movement path
+        self.path_cursor: Optional[Tuple[int, int]] = None  # Current position in path selection
+        self.movement_modal: Optional[Any] = None  # Reference to movement confirmation modal
+        self.action_modal: Optional[Any] = None  # Reference to action selection modal
+        self.current_mode: Optional[str] = None  # Track current action mode: 'move', 'attack', etc.
+        self.attack_modal: Optional[Any] = None  # Reference to attack confirmation modal
+        self.attack_target_tile: Optional[Tuple[int, int]] = None  # Currently targeted attack tile
+        
+        # Store control panel callback for camera updates
+        self.control_panel_callback = control_panel_callback
+        
+        # Initialize camera controller
         self.camera_controller = CameraController(
             self.grid.width, 
             self.grid.height, 
-            mode_change_callback=lambda mode: control_panel.update_camera_mode(mode) if 'control_panel' in globals() else None
+            mode_change_callback=self._on_camera_mode_change
         )
         
         # Initialize pathfinder first (required by other systems)
         try:
-            from core.math.pathfinding import AStarPathfinder
             self.pathfinder = AStarPathfinder(self.grid.grid)
             print("✓ AStarPathfinder initialized successfully")
         except Exception as e:
@@ -171,9 +131,24 @@ class TacticalRPG:
             print("⚠ Skipping InteractionManager - missing dependencies")
             self.interaction_manager = None
         
-        self.setup_battle()
+        # Initialize highlight entities list for cleanup
+        self.highlight_entities: List[Entity] = []
         
+        # Setup initial battle
+        self.setup_battle()
+    
+    def _on_camera_mode_change(self, mode: int):
+        """Handle camera mode changes."""
+        if self.control_panel_callback:
+            try:
+                control_panel = self.control_panel_callback()
+                if control_panel:
+                    control_panel.update_camera_mode(mode)
+            except Exception as e:
+                print(f"⚠ Error updating control panel camera mode: {e}")
+    
     def setup_battle(self):
+        """Initialize the battle with units and systems."""
         # Initialize ECS systems
         try:
             from systems.stat_system import StatSystem
@@ -190,8 +165,6 @@ class TacticalRPG:
             print(f"⚠ Could not import all ECS systems: {e}")
             print("  Continuing with legacy components...")
         
-        # Grid tiles now created by clean grid system - no individual entities needed
-                
         # Create units with randomized attributes based on type
         player_units = [
             Unit("Hero", UnitType.HEROMANCER, 1, 1),
@@ -215,14 +188,14 @@ class TacticalRPG:
                 print(f"✓ Registered {unit.name} with ECS World")
             except Exception as e:
                 print(f"⚠ Could not register {unit.name} with ECS World: {e}")
-            
+        
         self.turn_manager = TurnManager(self.units)
         self.refresh_all_ap()
         
         print(f"✓ Battle setup complete: {len(self.units)} units, ECS World with {self.world.entity_count} entities")
-        
+    
     def end_current_turn(self):
-        """End the current unit's turn and move to next unit"""
+        """End the current unit's turn and move to next unit."""
         if self.turn_manager:
             # Clear current selection
             self.clear_highlights()
@@ -233,11 +206,18 @@ class TacticalRPG:
             
             # Update control panel with new current unit
             current_unit = self.turn_manager.current_unit()
-            control_panel.update_unit_info(current_unit)
+            if self.control_panel_callback:
+                try:
+                    control_panel = self.control_panel_callback()
+                    if control_panel:
+                        control_panel.update_unit_info(current_unit)
+                except Exception as e:
+                    print(f"⚠ Error updating control panel: {e}")
             
             print(f"Turn ended. Now it's {current_unit.name}'s turn.")
-        
-    def handle_tile_click(self, x, y):
+    
+    def handle_tile_click(self, x: int, y: int):
+        """Handle clicks on grid tiles."""
         # Handle attack targeting if in attack mode
         if self.current_mode == "attack" and self.selected_unit:
             self.handle_attack_target_selection(x, y)
@@ -257,7 +237,14 @@ class TacticalRPG:
             self.current_mode = None  # Reset mode
             self.highlight_selected_unit()
             self.highlight_movement_range()
-            control_panel.update_unit_info(clicked_unit)
+            
+            if self.control_panel_callback:
+                try:
+                    control_panel = self.control_panel_callback()
+                    if control_panel:
+                        control_panel.update_unit_info(clicked_unit)
+                except Exception as e:
+                    print(f"⚠ Error updating control panel: {e}")
             
             # Show action modal for the selected unit
             self.show_action_modal(clicked_unit)
@@ -272,10 +259,55 @@ class TacticalRPG:
                 self.current_path = []
                 self.path_cursor = None
                 self.current_mode = None
-                control_panel.update_unit_info(None)
-                
+                if self.control_panel_callback:
+                    try:
+                        control_panel = self.control_panel_callback()
+                        if control_panel:
+                            control_panel.update_unit_info(None)
+                    except Exception as e:
+                        print(f"⚠ Error updating control panel: {e}")
+    
+    # Note: This is a partial extraction for now. 
+    # The complete class methods can be added as needed.
+    # For now, this demonstrates the extraction pattern.
+    
+    def refresh_all_ap(self):
+        """Reset action points for all units."""
+        for unit in self.units:
+            unit.ap = unit.max_ap
+            unit.current_move_points = unit.move_points  # Reset movement points
+
+    def update_unit_positions(self):
+        """Update visual positions of all unit entities."""
+        for entity in self.unit_entities:
+            entity.position = (entity.unit.x + 0.5, 1.0, entity.unit.y + 0.5)  # Center on grid tiles
+    
+    def clear_highlights(self):
+        """Clear all highlighting."""
+        # Clear unit highlighting
+        for entity in self.unit_entities:
+            entity.unhighlight()
+        
+        # Clear tile highlight entities
+        if hasattr(self, 'highlight_entities'):
+            for highlight in self.highlight_entities:
+                destroy(highlight)
+            self.highlight_entities = []
+        
+        # Clear tile highlighting through modular system (if available)
+        if self.tile_highlighter:
+            self.tile_highlighter.clear_all_highlights()
+    
+    def highlight_selected_unit(self):
+        """Highlight the currently selected unit."""
+        if self.selected_unit:
+            for entity in self.unit_entities:
+                if entity.unit == self.selected_unit:
+                    entity.highlight_selected()
+                    break
+    
     def highlight_movement_range(self):
-        """Highlight all tiles the selected unit can move to"""
+        """Highlight all tiles the selected unit can move to."""
         if not self.selected_unit:
             return
         
@@ -308,24 +340,9 @@ class TacticalRPG:
                         self.highlight_entities = []
                     self.highlight_entities.append(highlight)
                     highlight_count += 1
-                    
-    def highlight_selected_unit(self):
-        if self.selected_unit:
-            for entity in self.unit_entities:
-                if entity.unit == self.selected_unit:
-                    entity.highlight_selected()
-                    break
-                    
-    def highlight_possible_moves(self):
-        # This method is now replaced by highlight_movement_range
-        self.highlight_movement_range()
-                            
-    def get_tile_at(self, x, y):
-        # Using modular grid system - no individual tile entities
-        return None
-        
-    def handle_path_movement(self, direction):
-        """Handle path movement and confirmation"""
+    
+    def handle_path_movement(self, direction: str):
+        """Handle path movement and confirmation."""
         if not self.selected_unit or not self.path_cursor:
             return
             
@@ -372,7 +389,7 @@ class TacticalRPG:
             self.update_path_highlights()
     
     def show_action_modal(self, unit):
-        """Show modal with available actions for the selected unit"""
+        """Show modal with available actions for the selected unit."""
         if not unit:
             return
             
@@ -417,8 +434,8 @@ class TacticalRPG:
         self.action_modal.y = self.action_modal.panel.scale_y / 2 * self.action_modal.scale_y
         self.action_modal.layout()
     
-    def handle_action_selection(self, action_name, unit):
-        """Handle the selected action for a unit"""
+    def handle_action_selection(self, action_name: str, unit):
+        """Handle the selected action for a unit."""
         print(f"{unit.name} selected action: {action_name}")
         
         if action_name == "Move":
@@ -442,7 +459,7 @@ class TacticalRPG:
             print(f"Unknown action: {action_name}")
     
     def handle_attack(self, unit):
-        """Handle attack action - highlight attack range"""
+        """Handle attack action - highlight attack range."""
         if not unit:
             return
             
@@ -455,8 +472,8 @@ class TacticalRPG:
         
         print("Click on a target within red highlighted tiles to attack.")
     
-    def handle_attack_target_selection(self, x, y):
-        """Handle tile clicks when in attack mode"""
+    def handle_attack_target_selection(self, x: int, y: int):
+        """Handle tile clicks when in attack mode."""
         if not self.selected_unit:
             return
             
@@ -477,8 +494,8 @@ class TacticalRPG:
         else:
             print(f"Target at ({x}, {y}) is out of attack range!")
     
-    def highlight_attack_effect_area(self, target_x, target_y):
-        """Highlight the attack effect area around the target tile"""
+    def highlight_attack_effect_area(self, target_x: int, target_y: int):
+        """Highlight the attack effect area around the target tile."""
         if not self.selected_unit:
             return
         
@@ -511,8 +528,8 @@ class TacticalRPG:
                         self.highlight_entities = []
                     self.highlight_entities.append(highlight)
     
-    def show_attack_confirmation(self, target_x, target_y):
-        """Show modal to confirm attack on target tile"""
+    def show_attack_confirmation(self, target_x: int, target_y: int):
+        """Show modal to confirm attack on target tile."""
         if not self.selected_unit or not self.attack_target_tile:
             return
             
@@ -588,8 +605,8 @@ class TacticalRPG:
         self.attack_modal.y = self.attack_modal.panel.scale_y / 2 * self.attack_modal.scale_y
         self.attack_modal.layout()
     
-    def get_units_in_effect_area(self, target_x, target_y):
-        """Get all units within the attack effect area"""
+    def get_units_in_effect_area(self, target_x: int, target_y: int) -> List[Any]:
+        """Get all units within the attack effect area."""
         affected_units = []
         effect_radius = self.selected_unit.attack_effect_area
         
@@ -608,7 +625,7 @@ class TacticalRPG:
         return affected_units
             
     def show_movement_confirmation(self):
-        """Show modal to confirm unit movement"""
+        """Show modal to confirm unit movement."""
         if not self.path_cursor or not self.selected_unit:
             return
             
@@ -647,14 +664,14 @@ class TacticalRPG:
         self.movement_modal.y = self.movement_modal.panel.scale_y / 2 * self.movement_modal.scale_y
         self.movement_modal.layout()
     
-    def calculate_path_cost(self):
-        """Calculate the movement cost of the current path"""
+    def calculate_path_cost(self) -> int:
+        """Calculate the movement cost of the current path."""
         if not self.path_cursor or not self.selected_unit:
             return 0
         return abs(self.path_cursor[0] - self.selected_unit.x) + abs(self.path_cursor[1] - self.selected_unit.y)
     
     def execute_movement(self):
-        """Execute the planned movement"""
+        """Execute the planned movement."""
         if not self.path_cursor or not self.selected_unit:
             return
             
@@ -666,11 +683,17 @@ class TacticalRPG:
             self.current_path = []
             self.path_cursor = None
             self.clear_highlights()
-            control_panel.update_unit_info(None)
+            if self.control_panel_callback:
+                try:
+                    control_panel = self.control_panel_callback()
+                    if control_panel:
+                        control_panel.update_unit_info(None)
+                except Exception as e:
+                    print(f"⚠ Error updating control panel: {e}")
             print(f"Unit moved successfully. Press END TURN when ready.")
     
-    def is_valid_move_destination(self, x, y):
-        """Check if a position is within the unit's movement range"""
+    def is_valid_move_destination(self, x: int, y: int) -> bool:
+        """Check if a position is within the unit's movement range."""
         if not self.selected_unit:
             return False
             
@@ -684,7 +707,7 @@ class TacticalRPG:
                 (x, y) not in self.grid.units)
     
     def update_path_highlights(self):
-        """Update tile highlights to show movement range and current path"""
+        """Update tile highlights to show movement range and current path."""
         # Clear existing highlights
         self.clear_highlights()
         
@@ -725,7 +748,7 @@ class TacticalRPG:
             self.highlight_entities.append(highlight)
                     
     def highlight_attack_range(self, unit):
-        """Highlight all tiles within the unit's attack range in red"""
+        """Highlight all tiles within the unit's attack range in red."""
         if not unit:
             return
         
@@ -753,95 +776,13 @@ class TacticalRPG:
                         if not hasattr(self, 'highlight_entities'):
                             self.highlight_entities = []
                         self.highlight_entities.append(highlight)
-                    
-    def clear_highlights(self):
-        # Clear unit highlighting
-        for entity in self.unit_entities:
-            entity.unhighlight()
+    
+    def get_tile_at(self, x: int, y: int):
+        """Get tile at position (legacy compatibility)."""
+        # Using modular grid system - no individual tile entities
+        return None
         
-        # Clear tile highlight entities
-        if hasattr(self, 'highlight_entities'):
-            for highlight in self.highlight_entities:
-                destroy(highlight)
-            self.highlight_entities = []
-        
-        # Clear tile highlighting through modular system (if available)
-        if self.tile_highlighter:
-            self.tile_highlighter.clear_all_highlights()
-
-    def refresh_all_ap(self):
-        for unit in self.units:
-            unit.ap = unit.max_ap
-            unit.current_move_points = unit.move_points  # Reset movement points
-
-    def update_unit_positions(self):
-        for entity in self.unit_entities:
-            entity.position = (entity.unit.x + 0.5, 1.0, entity.unit.y + 0.5)  # Center on grid tiles
-
-# Create control panel
-control_panel = ControlPanel()
-
-def input(key):
-    # Handle mouse clicks for tile selection
-    if key == 'left mouse down':
-        # Check if clicking on a unit first
-        if mouse.hovered_entity and hasattr(mouse.hovered_entity, 'unit'):
-            return  # Let unit entity handle its own click
-        
-        # Handle tile clicks using world coordinates
-        mouse_pos = mouse.world_point
-        if mouse_pos:
-            # Convert world position to grid coordinates
-            # Floor the coordinates to get the grid tile
-            grid_x = int(mouse_pos.x) if mouse_pos.x >= 0 else -1
-            grid_z = int(mouse_pos.z) if mouse_pos.z >= 0 else -1
-            
-            # Check if click is within grid bounds
-            if 0 <= grid_x < 8 and 0 <= grid_z < 8:
-                game.handle_tile_click(grid_x, grid_z)
-        return
-    
-    # Handle path movement for selected unit ONLY if in move mode
-    if (game.selected_unit and game.current_mode == "move" and 
-        key in ['w', 'a', 's', 'd', 'enter']):
-        game.handle_path_movement(key)
-        return  # Don't process camera controls if unit is selected and WASD/Enter is pressed
-    
-    # Handle camera controls only if not handling unit movement
-    game.camera_controller.handle_input(key)
-
-# Initialize game
-game = TacticalRPG()
-
-# Set game reference for control panel
-control_panel.set_game_reference(game)
-
-def update():
-    # Update ECS World - this processes all systems
-    try:
-        game.world.update(time.dt)
-    except Exception as e:
-        print(f"⚠ ECS World update error: {e}")
-    
-    # Update camera
-    game.camera_controller.handle_mouse_input()
-    game.camera_controller.update_camera()
-    
-    # Update interaction manager (if available)
-    if game.interaction_manager:
-        try:
-            game.interaction_manager.update(time.dt)
-        except Exception as e:
-            print(f"⚠ InteractionManager update error: {e}")
-    
-    # Update control panel with current unit info
-    if game.turn_manager and game.turn_manager.current_unit() and not game.selected_unit:
-        control_panel.update_unit_info(game.turn_manager.current_unit())
-
-# Set initial camera position
-game.camera_controller.update_camera()
-
-# Add lighting
-DirectionalLight(y=10, z=5)
-
-app.run()
+    def highlight_possible_moves(self):
+        """Highlight possible moves (legacy compatibility)."""
+        # This method is now replaced by highlight_movement_range
+        self.highlight_movement_range()
