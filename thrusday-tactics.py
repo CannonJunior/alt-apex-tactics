@@ -44,8 +44,6 @@ from ui.visual.grid_visualizer import GridVisualizer
 from ui.visual.tile_highlighter import TileHighlighter
 from ui.interaction.interactive_tile import InteractiveTile
 from ui.interaction.interaction_manager import InteractionManager
-from ui.camera.camera_controller import CameraController
-from ui.panels.control_panel import ControlPanel
 
 import random
 import math
@@ -400,6 +398,106 @@ class TurnManager:
         return self.units[self.current_turn] if self.units else None
 
 # Camera Control System
+class CameraController:
+    def __init__(self, grid_width=8, grid_height=8):
+        self.grid_center = Vec3(grid_width/2 - 0.5, 0, grid_height/2 - 0.5)
+        self.camera_target = Vec3(self.grid_center.x, self.grid_center.y, self.grid_center.z)
+        self.camera_distance = 8
+        self.camera_angle_x = 30
+        self.camera_angle_y = 0
+        self.camera_mode = 0  # 0: orbit, 1: free, 2: top-down
+        self.move_speed = 0.5
+        self.rotation_speed = 50
+        
+    def update_camera(self):
+        if self.camera_mode == 0:  # Orbit mode
+            rad_y = math.radians(self.camera_angle_y)
+            rad_x = math.radians(self.camera_angle_x)
+            
+            x = self.camera_target.x + self.camera_distance * math.cos(rad_x) * math.sin(rad_y)
+            y = self.camera_target.y + self.camera_distance * math.sin(rad_x)
+            z = self.camera_target.z + self.camera_distance * math.cos(rad_x) * math.cos(rad_y)
+            
+            camera.position = (x, y, z)
+            camera.look_at(self.camera_target)
+        
+        elif self.camera_mode == 1:  # Free camera mode
+            pass  # Handled by input functions
+        
+        elif self.camera_mode == 2:  # Top-down mode
+            camera.position = (self.camera_target.x, 12, self.camera_target.z)
+            camera.rotation = (90, 0, 0)
+    
+    def handle_input(self, key):
+        # Camera mode switching
+        if key == '1':
+            self.camera_mode = 0
+            print("Orbit Camera Mode")
+            control_panel.update_camera_mode(0)
+        elif key == '2':
+            self.camera_mode = 1
+            print("Free Camera Mode")
+            control_panel.update_camera_mode(1)
+        elif key == '3':
+            self.camera_mode = 2
+            print("Top-down Camera Mode")
+            control_panel.update_camera_mode(2)
+        
+        # Orbit camera controls
+        elif self.camera_mode == 0:
+            if key == 'scroll up':
+                self.camera_distance = max(3, self.camera_distance - 0.5)
+            elif key == 'scroll down':
+                self.camera_distance = min(15, self.camera_distance + 0.5)
+        
+        # Free camera controls
+        elif self.camera_mode == 1:
+            if key == 'w':
+                camera.position += camera.forward * self.move_speed
+            elif key == 's':
+                camera.position -= camera.forward * self.move_speed
+            elif key == 'a':
+                camera.position -= camera.right * self.move_speed
+            elif key == 'd':
+                camera.position += camera.right * self.move_speed
+            elif key == 'q':
+                camera.position += camera.up * self.move_speed
+            elif key == 'e':
+                camera.position -= camera.up * self.move_speed
+        
+        # Top-down camera movement
+        elif self.camera_mode == 2:
+            if key == 'w':
+                self.camera_target.z -= self.move_speed
+            elif key == 's':
+                self.camera_target.z += self.move_speed
+            elif key == 'a':
+                self.camera_target.x -= self.move_speed
+            elif key == 'd':
+                self.camera_target.x += self.move_speed
+    
+    def handle_mouse_input(self):
+        if self.camera_mode == 0:  # Orbit mode
+            if held_keys['left mouse']:
+                self.camera_angle_y += mouse.velocity.x * 50
+                self.camera_angle_x = max(-80, min(80, self.camera_angle_x - mouse.velocity.y * 50))
+            
+            # Keyboard rotation
+            rotation_speed = self.rotation_speed * time.dt
+            if held_keys['left arrow']:
+                self.camera_angle_y -= rotation_speed
+            elif held_keys['right arrow']:
+                self.camera_angle_y += rotation_speed
+            elif held_keys['up arrow']:
+                self.camera_angle_x = max(-80, self.camera_angle_x - rotation_speed)
+            elif held_keys['down arrow']:
+                self.camera_angle_x = min(80, self.camera_angle_x + rotation_speed)
+        
+        elif self.camera_mode == 1:  # Free camera mode
+            if held_keys['left mouse']:
+                camera.rotation_y += mouse.velocity.x * 40
+                camera.rotation_x -= mouse.velocity.y * 40
+                camera.rotation_x = max(-90, min(90, camera.rotation_x))
 
 # Visual Components
 # GridTile class removed - using modular GridVisualizer system instead
@@ -449,11 +547,7 @@ class TacticalRPG:
         self.current_mode = None  # Track current action mode: 'move', 'attack', etc.
         self.attack_modal = None  # Reference to attack confirmation modal
         self.attack_target_tile = None  # Currently targeted attack tile
-        self.camera_controller = CameraController(
-            self.grid.width, 
-            self.grid.height, 
-            mode_change_callback=lambda mode: control_panel.update_camera_mode(mode) if 'control_panel' in globals() else None
-        )
+        self.camera_controller = CameraController(self.grid.width, self.grid.height)
         
         # Initialize pathfinder first (required by other systems)
         try:
@@ -1110,6 +1204,100 @@ class TacticalRPG:
     def update_unit_positions(self):
         for entity in self.unit_entities:
             entity.position = (entity.unit.x + 0.5, 1.0, entity.unit.y + 0.5)  # Center on grid tiles
+from ursina.prefabs.window_panel import WindowPanel
+
+class ControlPanel:
+    def __init__(self):
+        # Current unit info text
+        self.unit_info_text = Text('No unit selected')
+        
+        # Camera controls text
+        self.camera_controls_text = Text('CAMERA: [1] Orbit | [2] Free | [3] Top-down | ACTIVE: Orbit')
+        
+        # Game controls text
+        self.game_controls_text = Text('CONTROLS: Click unit to select | Click tile to move | Mouse/WASD for camera')
+        
+        # Stats display text
+        self.stats_display_text = Text('')
+        
+        # Create action buttons first
+        self.end_turn_btn = Button(
+            text='END TURN',
+            color=color.orange
+        )
+        
+        self.attack_btn = Button(
+            text='ATTACK',
+            color=color.red
+        )
+        
+        self.defend_btn = Button(
+            text='DEFEND',
+            color=color.blue
+        )
+        
+        # Set up button functionality
+        self.end_turn_btn.on_click = self.end_turn_clicked
+        self.attack_btn.on_click = self.attack_clicked
+        self.defend_btn.on_click = self.defend_clicked
+        
+        # Create main window panel with all content including buttons
+        self.panel = WindowPanel(
+            title='Tactical RPG Control Panel',
+            content=(
+                self.unit_info_text,
+                self.camera_controls_text,
+                self.game_controls_text,
+                self.stats_display_text,
+                Text('Actions:'),  # Label for buttons
+                self.end_turn_btn,
+                self.attack_btn,
+                self.defend_btn
+            ),
+            popup=False
+        )
+        
+        # Position the control panel at the bottom
+        self.panel.x = 0
+        self.panel.y = -0.3
+        
+        # Layout the content within the panel
+        self.panel.layout()
+    
+    def end_turn_clicked(self):
+        print("End Turn button clicked!")
+        if hasattr(self, 'game_reference') and self.game_reference:
+            self.game_reference.end_current_turn()
+    
+    def attack_clicked(self):
+        print("Attack button clicked!")
+        # TODO: Implement attack functionality
+    
+    def defend_clicked(self):
+        print("Defend button clicked!")
+        # TODO: Implement defend functionality
+    
+    def set_game_reference(self, game):
+        """Set reference to the main game object for button interactions"""
+        self.game_reference = game
+    
+    def update_unit_info(self, unit):
+        if unit:
+            self.unit_info_text.text = f"ACTIVE: {unit.name} ({unit.type.value}) | MP: {unit.current_move_points}/{unit.move_points} | HP: {unit.hp}/{unit.max_hp}"
+            self.stats_display_text.text = f"ATK - Physical: {unit.physical_attack} | Magical: {unit.magical_attack} | Spiritual: {unit.spiritual_attack}\nDEF - Physical: {unit.physical_defense} | Magical: {unit.magical_defense} | Spiritual: {unit.spiritual_defense}"
+        else:
+            self.unit_info_text.text = "No unit selected"
+            self.stats_display_text.text = ""
+        
+        # Re-layout after text changes
+        self.panel.layout()
+    
+    def update_camera_mode(self, mode):
+        mode_names = ["Orbit", "Free", "Top-down"]
+        self.camera_controls_text.text = f"CAMERA: [1] Orbit | [2] Free | [3] Top-down | ACTIVE: {mode_names[mode]}"
+        
+        # Re-layout after text changes
+        self.panel.layout()
 
 # Create control panel
 control_panel = ControlPanel()
