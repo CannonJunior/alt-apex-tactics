@@ -1,400 +1,150 @@
-"""
-Apex Tactics - Modernized with Modular Components
-
-This file has been updated to use the modular ECS architecture from src/ while 
-maintaining backwards compatibility with the original monolithic structure.
-
-Components Replaced:
-- UnitType enum → src/components/gameplay/unit_type.py  
-- Unit class → ECS entities with AttributeStats, MovementComponent, etc.
-- BattleGrid → src/core/math/grid.py (TacticalGrid) with legacy wrapper
-- TurnManager → src/game/battle/turn_manager.py with legacy wrapper
-
-Components Preserved:
-- CameraController (as requested)
-- TacticalRPG main class (enhanced with ECS World)
-- ControlPanel (preserved, could be enhanced later)
-- Ursina-specific visual components (GridTile, UnitEntity) 
-- Main game loop and app initialization
-
-The system now runs both legacy and modular components in parallel, with the ECS 
-World providing enhanced performance and the legacy wrappers ensuring compatibility.
-"""
-
 from ursina import *
-import sys
-import os
-
-# Add src directory to Python path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
-# Import modular components
-from core.ecs.world import World
-from core.ecs.entity import Entity as ECSEntity
-from components.stats.attributes import AttributeStats
-from components.gameplay.unit_type import UnitType, UnitTypeComponent
-from components.movement.movement import MovementComponent
-from components.combat.attack import AttackComponent
-from components.combat.defense import DefenseComponent
-from components.combat.damage import AttackType
-from core.math.grid import TacticalGrid
-from core.math.vector import Vector2Int
-from game.battle.turn_manager import TurnManager as ModularTurnManager
-from ui.visual.grid_visualizer import GridVisualizer
-from ui.visual.tile_highlighter import TileHighlighter
-from ui.interaction.interactive_tile import InteractiveTile
-from ui.interaction.interaction_manager import InteractionManager
-
+from enum import Enum
 import random
 import math
 
 app = Ursina()
 
-# Create a simple ground plane for better visibility  
+# Create a simple ground plane for better visibility
 ground = Entity(model='plane', texture='white_cube', color=color.dark_gray, scale=(20, 1, 20), position=(4, -0.1, 4))
 
-def create_clean_grid_lines():
-    """Create clean visual grid lines like in phase4_visual_demo"""
-    grid_size = 8  # Match the BattleGrid size
-    line_color = color.Color(0.4, 0.4, 0.4, 0.5)
-    
-    # Vertical lines
-    for x in range(grid_size + 1):
-        line = Entity(
-            model='cube',
-            color=line_color,
-            scale=(0.02, 0.01, grid_size),
-            position=(x, 0, grid_size / 2)
-        )
-    
-    # Horizontal lines  
-    for z in range(grid_size + 1):
-        line = Entity(
-            model='cube', 
-            color=line_color,
-            scale=(grid_size, 0.01, 0.02),
-            position=(grid_size / 2, 0, z)
-        )
+# Core Data Models
+class UnitType(Enum):
+    HEROMANCER = "heromancer"
+    UBERMENSCH = "ubermensch"
+    SOUL_LINKED = "soul_linked"
+    REALM_WALKER = "realm_walker"
+    WARGI = "wargi"
+    MAGI = "magi"
 
-# Create the clean grid
-create_clean_grid_lines()
-
-# Mouse detection now handled in the input() function using world coordinates
-
-# Legacy Unit wrapper for backwards compatibility
 class Unit:
-    """Legacy Unit class wrapper around ECS entities for backwards compatibility"""
-    
     def __init__(self, name, unit_type, x, y, wisdom=None, wonder=None, worthy=None, faith=None, finesse=None, fortitude=None, speed=None, spirit=None, strength=None):
-        # Create ECS entity using modular components
-        self.entity = create_unit_entity(name, unit_type, x, y, wisdom, wonder, worthy, faith, finesse, fortitude, speed, spirit, strength)
         self.name = name
         self.type = unit_type
         self.x, self.y = x, y
         
-        # Get components for quick access
-        self.stats = self.entity.get_component(AttributeStats)
-        self.movement = self.entity.get_component(MovementComponent)
-        self.attack_comp = self.entity.get_component(AttackComponent)
-        self.defense_comp = self.entity.get_component(DefenseComponent)
+        # Randomize attributes based on unit type
+        self._randomize_attributes(wisdom, wonder, worthy, faith, finesse, fortitude, speed, spirit, strength)
         
-        # Legacy compatibility properties
+        # Derived Stats
+        self.max_hp = self.hp = (self.strength + self.fortitude + self.faith + self.worthy) * 5
+        self.max_mp = self.mp = (self.wisdom + self.wonder + self.spirit + self.finesse) * 3
+        self.max_ap = self.ap = self.speed
+        self.move_points = self.speed // 2 + 2  # Movement based on speed attribute
+        self.current_move_points = self.move_points  # Current movement available this turn
         self.alive = True
+        
+        # Combat attributes
+        self.attack_range = 1  # Default attack range
+        self.attack_effect_area = 0  # Default single-target attack (0 means only target tile)
+        self.equipped_weapon = None  # Could be expanded later
+        
+        # Default action options for all units
         self.action_options = ["Move", "Attack", "Spirit", "Magic", "Inventory"]
         
-    @property
-    def strength(self):
-        return self.stats.strength
-    
-    @property
-    def fortitude(self):
-        return self.stats.fortitude
-    
-    @property
-    def finesse(self):
-        return self.stats.finesse
-    
-    @property
-    def wisdom(self):
-        return self.stats.wisdom
-    
-    @property
-    def wonder(self):
-        return self.stats.wonder
-    
-    @property
-    def worthy(self):
-        return self.stats.worthy
-    
-    @property
-    def faith(self):
-        return self.stats.faith
-    
-    @property
-    def spirit(self):
-        return self.stats.spirit
-    
-    @property
-    def speed(self):
-        return self.stats.speed
-    
-    @property
-    def max_hp(self):
-        return self.stats.max_hp
-    
-    @property
-    def hp(self):
-        return self.stats.current_hp
-    
-    @hp.setter
-    def hp(self, value):
-        self.stats.current_hp = value
-    
-    @property
-    def max_mp(self):
-        return self.stats.max_mp
-    
-    @property
-    def mp(self):
-        return self.stats.current_mp
-    
-    @property
-    def max_ap(self):
-        return self.stats.derived_stats.get('ap', self.speed)
-    
-    @property
-    def ap(self):
-        return self.stats.derived_stats.get('current_ap', self.speed)
-    
-    @ap.setter
-    def ap(self, value):
-        # Store AP in derived cache - this is a bit of a hack for legacy compatibility
-        self.stats.derived_stats['current_ap'] = value
-    
-    @property
-    def move_points(self):
-        return self.movement.movement_range
-    
-    @property
-    def current_move_points(self):
-        return self.movement.remaining_movement
-    
-    @current_move_points.setter
-    def current_move_points(self, value):
-        self.movement.remaining_movement = value
-    
-    @property
-    def attack_range(self):
-        return self.attack_comp.attack_range
-    
-    @property
-    def attack_effect_area(self):
-        return int(self.attack_comp.area_effect_radius)
-    
+    def _randomize_attributes(self, wisdom, wonder, worthy, faith, finesse, fortitude, speed, spirit, strength):
+        # Base random values (5-15)
+        base_attrs = {
+            'wisdom': wisdom or random.randint(5, 15),
+            'wonder': wonder or random.randint(5, 15),
+            'worthy': worthy or random.randint(5, 15),
+            'faith': faith or random.randint(5, 15),
+            'finesse': finesse or random.randint(5, 15),
+            'fortitude': fortitude or random.randint(5, 15),
+            'speed': speed or random.randint(5, 15),
+            'spirit': spirit or random.randint(5, 15),
+            'strength': strength or random.randint(5, 15)
+        }
+        
+        # Type-specific bonuses (+3-8)
+        type_bonuses = {
+            UnitType.HEROMANCER: ['speed', 'strength', 'finesse'],
+            UnitType.UBERMENSCH: ['speed', 'strength', 'fortitude'],
+            UnitType.SOUL_LINKED: ['faith', 'fortitude', 'worthy'],
+            UnitType.REALM_WALKER: ['spirit', 'faith', 'worthy'],
+            UnitType.WARGI: ['wisdom', 'wonder', 'spirit'],
+            UnitType.MAGI: ['wisdom', 'wonder', 'finesse']
+        }
+        
+        for attr in type_bonuses[self.type]:
+            base_attrs[attr] += random.randint(3, 8)
+            
+        # Assign to self
+        for attr, value in base_attrs.items():
+            setattr(self, attr, value)
+        
     @property
     def physical_defense(self):
-        return self.defense_comp.get_defense_value(AttackType.PHYSICAL)
-    
+        return (self.speed + self.strength + self.fortitude) // 3
+        
     @property
     def magical_defense(self):
-        return self.defense_comp.get_defense_value(AttackType.MAGICAL)
-    
+        return (self.wisdom + self.wonder + self.finesse) // 3
+        
     @property
     def spiritual_defense(self):
-        return self.defense_comp.get_defense_value(AttackType.SPIRITUAL)
-    
+        return (self.spirit + self.faith + self.worthy) // 3
+        
     @property
     def physical_attack(self):
-        return self.stats.derived_stats.get('physical_attack', (self.speed + self.strength + self.finesse) // 2)
-    
+        return (self.speed + self.strength + self.finesse) // 2
+        
     @property
     def magical_attack(self):
-        return self.stats.derived_stats.get('magical_attack', (self.wisdom + self.wonder + self.spirit) // 2)
-    
+        return (self.wisdom + self.wonder + self.spirit) // 2
+        
     @property
     def spiritual_attack(self):
-        return self.stats.derived_stats.get('spiritual_attack', (self.faith + self.fortitude + self.worthy) // 2)
-    
-    def take_damage(self, damage, damage_type=AttackType.PHYSICAL):
-        current_hp = self.hp
-        defense = self.defense_comp.get_defense_value(damage_type)
-        actual_damage = max(1, damage - defense)
-        new_hp = max(0, current_hp - actual_damage)
-        self.hp = new_hp
-        self.alive = new_hp > 0
-    
+        return (self.faith + self.fortitude + self.worthy) // 2
+        
+    def take_damage(self, damage, damage_type="physical"):
+        defense = {"physical": self.physical_defense, "magical": self.magical_defense, "spiritual": self.spiritual_defense}[damage_type]
+        self.hp = max(0, self.hp - max(1, damage - defense))
+        self.alive = self.hp > 0
+
     def can_move_to(self, x, y, grid):
         distance = abs(x - self.x) + abs(y - self.y)
         return distance <= self.current_move_points and grid.is_valid(x, y)
 
-def create_unit_entity(name, unit_type, x, y, wisdom=None, wonder=None, worthy=None, faith=None, finesse=None, fortitude=None, speed=None, spirit=None, strength=None):
-    """Factory function to create a unit entity with modular components"""
-    
-    # Create base attributes with random values
-    base_attrs = {
-        'wisdom': wisdom or random.randint(5, 15),
-        'wonder': wonder or random.randint(5, 15),
-        'worthy': worthy or random.randint(5, 15),
-        'faith': faith or random.randint(5, 15),
-        'finesse': finesse or random.randint(5, 15),
-        'fortitude': fortitude or random.randint(5, 15),
-        'speed': speed or random.randint(5, 15),
-        'spirit': spirit or random.randint(5, 15),
-        'strength': strength or random.randint(5, 15)
-    }
-    
-    # Create ECS entity
-    entity = ECSEntity()
-    entity.name = name
-    
-    # Add components
-    stats = AttributeStats(**base_attrs)
-    entity.add_component(stats)
-    
-    unit_type_comp = UnitTypeComponent(unit_type)
-    entity.add_component(unit_type_comp)
-    
-    # Apply type bonuses to stats
-    for attr, bonus in unit_type_comp.get_all_bonuses().items():
-        current_value = getattr(stats, attr, 0)
-        setattr(stats, attr, current_value + bonus)
-    
-    # Add movement component
-    movement_range = stats.speed // 2 + 2
-    movement = MovementComponent(movement_range=movement_range)
-    entity.add_component(movement)
-    
-    # Add combat components
-    attack = AttackComponent(attack_range=1, area_effect_radius=0.0)
-    entity.add_component(attack)
-    
-    # Initialize defense with values from stats
-    defense = DefenseComponent(
-        physical_defense=stats.derived_stats.get('physical_defense', 0),
-        magical_defense=stats.derived_stats.get('magical_defense', 0),
-        spiritual_defense=stats.derived_stats.get('spiritual_defense', 0)
-    )
-    entity.add_component(defense)
-    
-    return entity
-
-# Battle Grid System (Legacy wrapper)
+# Battle Grid System
 class BattleGrid:
-    """Legacy wrapper around TacticalGrid for backwards compatibility"""
-    
     def __init__(self, width=8, height=8):
         self.width, self.height = width, height
-        self.grid = TacticalGrid(width, height)
+        self.tiles = {}
         self.units = {}
         self.selected_unit = None
         
     def is_valid(self, x, y):
-        grid_pos = Vector2Int(x, y)
-        if not self.grid.is_valid_position(grid_pos):
-            return False
-        return (x, y) not in self.units
+        return 0 <= x < self.width and 0 <= y < self.height and (x, y) not in self.units
         
     def add_unit(self, unit):
         self.units[(unit.x, unit.y)] = unit
-        # Also update the grid
-        try:
-            from core.math.vector import Vector2Int
-            grid_pos = Vector2Int(unit.x, unit.y)
-            cell = self.grid.get_cell(grid_pos)
-            if cell:
-                cell.occupied = True
-        except Exception as e:
-            print(f"⚠ Could not update grid cell: {e}")
         
     def move_unit(self, unit, x, y):
         if unit.can_move_to(x, y, self):
             distance = abs(x - unit.x) + abs(y - unit.y)
-            
-            # Clear old position
-            try:
-                from core.math.vector import Vector2Int
-                old_pos = Vector2Int(unit.x, unit.y)
-                old_cell = self.grid.get_cell(old_pos)
-                if old_cell:
-                    old_cell.occupied = False
-            except Exception as e:
-                print(f"⚠ Could not clear old grid cell: {e}")
-            
             del self.units[(unit.x, unit.y)]
-            
-            # Set new position
             unit.x, unit.y = x, y
             unit.current_move_points -= distance
             self.units[(x, y)] = unit
-            
-            try:
-                new_pos = Vector2Int(x, y)
-                new_cell = self.grid.get_cell(new_pos)
-                if new_cell:
-                    new_cell.occupied = True
-            except Exception as e:
-                print(f"⚠ Could not update new grid cell: {e}")
-            
             return True
         return False
 
-# Turn Management (Legacy wrapper)
+# Turn Management
 class TurnManager:
-    """Legacy wrapper around ModularTurnManager for backwards compatibility"""
-    
     def __init__(self, units):
         self.units = sorted(units, key=lambda u: u.speed, reverse=True)
         self.current_turn = 0
         self.phase = "move"  # move, action, end
         
-        # Create modular turn manager
-        self.modular_turn_manager = ModularTurnManager()
-        
-        # Prepare entity list for modular turn manager
-        unit_entities = [unit.entity for unit in self.units]
-        
-        # Start combat with all units
-        try:
-            self.modular_turn_manager.start_combat(unit_entities)
-            print("✓ Modular turn manager initialized successfully")
-        except Exception as e:
-            print(f"⚠ Could not initialize modular turn manager: {e}")
-            # Fallback to legacy system only
-            self.modular_turn_manager = None
-        
     def next_turn(self):
         self.current_turn = (self.current_turn + 1) % len(self.units)
-        
-        # Advance modular turn manager if available
-        if self.modular_turn_manager:
-            try:
-                self.modular_turn_manager.advance_to_next_unit()
-            except Exception as e:
-                print(f"⚠ Error advancing modular turn manager: {e}")
-        
         if self.current_turn == 0:
-            # New round - reset all units
             for unit in self.units:
                 unit.ap = unit.max_ap
                 unit.current_move_points = unit.move_points  # Reset movement points
                 
     def current_unit(self):
-        if not self.units:
-            return None
-        
-        # Get current unit from modular system if available
-        if self.modular_turn_manager:
-            try:
-                current_unit_id = self.modular_turn_manager.get_current_unit()
-                if current_unit_id:
-                    # Find unit by entity ID
-                    for unit in self.units:
-                        if unit.entity.id == current_unit_id:
-                            return unit
-            except Exception as e:
-                print(f"⚠ Error getting current unit from modular system: {e}")
-        
-        # Fallback to legacy system
         return self.units[self.current_turn] if self.units else None
 
 # Camera Control System
@@ -500,7 +250,28 @@ class CameraController:
                 camera.rotation_x = max(-90, min(90, camera.rotation_x))
 
 # Visual Components
-# GridTile class removed - using modular GridVisualizer system instead
+class GridTile(Entity):
+    def __init__(self, x, y):
+        super().__init__(
+            parent=scene,
+            model='cube',
+            color=color.light_gray,
+            scale=(0.9, 0.1, 0.9),
+            position=(x, 0, y),
+            collider='box'  # Add collider for click detection
+        )
+        self.grid_x, self.grid_y = x, y
+        self.original_color = color.light_gray
+        
+    def on_click(self):
+        print(f"Tile clicked at: ({self.grid_x}, {self.grid_y})")
+        game.handle_tile_click(self.grid_x, self.grid_y)
+            
+    def highlight(self, highlight_color=color.yellow):
+        self.color = highlight_color
+        
+    def unhighlight(self):
+        self.color = self.original_color
 
 class UnitEntity(Entity):
     def __init__(self, unit):
@@ -517,7 +288,7 @@ class UnitEntity(Entity):
             model='cube',
             color=colors[unit.type],
             scale=(0.8, 2.0, 0.8),
-            position=(unit.x + 0.5, 1.0, unit.y + 0.5)  # Center units on grid tiles
+            position=(unit.x, 1.0, unit.y)
         )
         self.unit = unit
         self.original_color = colors[unit.type]
@@ -531,13 +302,10 @@ class UnitEntity(Entity):
 # Main Game Controller
 class TacticalRPG:
     def __init__(self):
-        # Initialize ECS World
-        self.world = World()
-        
-        # Legacy components for backwards compatibility
         self.grid = BattleGrid()
         self.units = []
         self.unit_entities = []
+        self.tile_entities = []
         self.turn_manager = None
         self.selected_unit = None
         self.current_path = []  # Track the selected movement path
@@ -549,75 +317,13 @@ class TacticalRPG:
         self.attack_target_tile = None  # Currently targeted attack tile
         self.camera_controller = CameraController(self.grid.width, self.grid.height)
         
-        # Initialize pathfinder first (required by other systems)
-        try:
-            from core.math.pathfinding import AStarPathfinder
-            self.pathfinder = AStarPathfinder(self.grid.grid)
-            print("✓ AStarPathfinder initialized successfully")
-        except Exception as e:
-            print(f"⚠ Could not initialize AStarPathfinder: {e}")
-            self.pathfinder = None
-        
-        # Initialize grid visualizer (requires pathfinder)
-        if self.pathfinder:
-            try:
-                self.grid_visualizer = GridVisualizer(self.grid.grid, self.pathfinder)
-                print("✓ GridVisualizer initialized successfully")
-            except Exception as e:
-                print(f"⚠ Could not initialize GridVisualizer: {e}")
-                self.grid_visualizer = None
-        else:
-            print("⚠ Skipping GridVisualizer - AStarPathfinder not available")
-            self.grid_visualizer = None
-        
-        # Initialize tile highlighter (requires grid visualizer)
-        if self.grid_visualizer:
-            try:
-                self.tile_highlighter = TileHighlighter(self.grid_visualizer)
-                print("✓ TileHighlighter initialized successfully")
-            except Exception as e:
-                print(f"⚠ Could not initialize TileHighlighter: {e}")
-                self.tile_highlighter = None
-        else:
-            print("⚠ Skipping TileHighlighter - GridVisualizer not available")
-            self.tile_highlighter = None
-        
-        # Initialize interaction manager for enhanced UI (only if all dependencies available)
-        if self.grid_visualizer and self.pathfinder:
-            try:
-                self.interaction_manager = InteractionManager(
-                    self.grid.grid, 
-                    self.pathfinder, 
-                    self.grid_visualizer
-                )
-                print("✓ InteractionManager initialized successfully")
-            except Exception as e:
-                print(f"⚠ Could not initialize InteractionManager: {e}")
-                self.interaction_manager = None
-        else:
-            print("⚠ Skipping InteractionManager - missing dependencies")
-            self.interaction_manager = None
-        
         self.setup_battle()
         
     def setup_battle(self):
-        # Initialize ECS systems
-        try:
-            from systems.stat_system import StatSystem
-            from systems.movement_system import MovementSystem
-            from systems.combat_system import CombatSystem
-            
-            # Add systems to world
-            self.world.add_system(StatSystem())
-            self.world.add_system(MovementSystem())
-            self.world.add_system(CombatSystem())
-            
-            print("✓ ECS systems initialized successfully")
-        except ImportError as e:
-            print(f"⚠ Could not import all ECS systems: {e}")
-            print("  Continuing with legacy components...")
-        
-        # Grid tiles now created by clean grid system - no individual entities needed
+        # Create grid tiles
+        for x in range(self.grid.width):
+            for y in range(self.grid.height):
+                self.tile_entities.append(GridTile(x, y))
                 
         # Create units with randomized attributes based on type
         player_units = [
@@ -630,23 +336,12 @@ class TacticalRPG:
         ]
         
         self.units = player_units + enemy_units
-        
-        # Add units to both legacy and ECS systems
         for unit in self.units:
             self.grid.add_unit(unit)
             self.unit_entities.append(UnitEntity(unit))
             
-            # Register unit entity with ECS world entity manager
-            try:
-                self.world.entity_manager._register_entity(unit.entity)
-                print(f"✓ Registered {unit.name} with ECS World")
-            except Exception as e:
-                print(f"⚠ Could not register {unit.name} with ECS World: {e}")
-            
         self.turn_manager = TurnManager(self.units)
         self.refresh_all_ap()
-        
-        print(f"✓ Battle setup complete: {len(self.units)} units, ECS World with {self.world.entity_count} entities")
         
     def end_current_turn(self):
         """End the current unit's turn and move to next unit"""
@@ -689,25 +384,30 @@ class TacticalRPG:
             # Show action modal for the selected unit
             self.show_action_modal(clicked_unit)
         else:
-            # Clicked on an empty tile
-            if self.current_mode == "move":
-                # In movement mode - don't clear selection, this could be path planning
-                return
-            else:
-                # Not in movement mode - clear selection
-                self.selected_unit = None
-                self.current_path = []
-                self.path_cursor = None
-                self.current_mode = None
-                control_panel.update_unit_info(None)
+            # Clicked on an empty tile - clear selection
+            self.selected_unit = None
+            self.current_path = []
+            self.path_cursor = None
+            self.current_mode = None
+            control_panel.update_unit_info(None)
                 
     def highlight_movement_range(self):
-        """Highlight all tiles the selected unit can move to using modular system"""
-        if not self.selected_unit or not self.tile_highlighter:
+        """Highlight all tiles the selected unit can move to"""
+        if not self.selected_unit:
             return
-        
-        # Use the modular tile highlighter to show movement range
-        self.tile_highlighter.set_selected_unit(self.selected_unit.entity)
+            
+        for x in range(self.grid.width):
+            for y in range(self.grid.height):
+                distance = abs(x - self.selected_unit.x) + abs(y - self.selected_unit.y)
+                if distance <= self.selected_unit.current_move_points and self.grid.is_valid(x, y):
+                    tile = self.get_tile_at(x, y)
+                    if tile:
+                        if distance == 0:
+                            # Current position - different color
+                            tile.highlight(color.white)
+                        else:
+                            # Valid movement range
+                            tile.highlight(color.green)
                     
     def highlight_selected_unit(self):
         if self.selected_unit:
@@ -721,7 +421,9 @@ class TacticalRPG:
         self.highlight_movement_range()
                             
     def get_tile_at(self, x, y):
-        # Using modular grid system - no individual tile entities
+        for tile in self.tile_entities:
+            if tile.grid_x == x and tile.grid_y == y:
+                return tile
         return None
         
     def handle_path_movement(self, direction):
@@ -878,15 +580,27 @@ class TacticalRPG:
             print(f"Target at ({x}, {y}) is out of attack range!")
     
     def highlight_attack_effect_area(self, target_x, target_y):
-        """Highlight the attack effect area around the target tile using modular system"""
-        if not self.selected_unit or not self.tile_highlighter:
+        """Highlight the attack effect area around the target tile"""
+        if not self.selected_unit:
             return
-        
-        # Use the modular tile highlighter to show effect area
-        from ui.visual.grid_visualizer import HighlightType
-        grid_pos = Vector2Int(target_x, target_y)
+            
         effect_radius = self.selected_unit.attack_effect_area
-        self.tile_highlighter.show_effect_area(grid_pos, effect_radius, HighlightType.EFFECT_AREA)
+        
+        for x in range(self.grid.width):
+            for y in range(self.grid.height):
+                # Calculate Manhattan distance from target tile to this tile
+                distance = abs(x - target_x) + abs(y - target_y)
+                
+                # Highlight tiles within effect area
+                if distance <= effect_radius:
+                    tile = self.get_tile_at(x, y)
+                    if tile:
+                        if (x, y) == (target_x, target_y):
+                            # Target tile gets special color
+                            tile.highlight(color.orange)
+                        else:
+                            # Effect area tiles
+                            tile.highlight(color.yellow)
     
     def show_attack_confirmation(self, target_x, target_y):
         """Show modal to confirm attack on target tile"""
@@ -909,7 +623,7 @@ class TacticalRPG:
             attack_damage = self.selected_unit.physical_attack
             for target_unit in unit_list:
                 print(f"  {target_unit.name} takes {attack_damage} physical damage!")
-                target_unit.take_damage(attack_damage, AttackType.PHYSICAL)
+                target_unit.take_damage(attack_damage, "physical")
                 
                 if not target_unit.alive:
                     print(f"  {target_unit.name} has been defeated!")
@@ -1061,7 +775,7 @@ class TacticalRPG:
                 (x, y) not in self.grid.units)
     
     def update_path_highlights(self):
-        """Update tile highlights to show movement range and current path using modular system"""
+        """Update tile highlights to show movement range and current path"""
         # Clear existing highlights
         self.clear_highlights()
         
@@ -1071,30 +785,44 @@ class TacticalRPG:
         # Highlight selected unit
         self.highlight_selected_unit()
         
-        # Highlight all valid movement tiles using modular system
+        # Highlight all valid movement tiles in green
         self.highlight_movement_range()
         
-        # Show current path using modular system
-        if self.current_path and self.tile_highlighter:
-            path_positions = [Vector2Int(pos[0], pos[1]) for pos in self.current_path]
-            self.tile_highlighter.show_movement_path(path_positions)
+        # Highlight current path in blue (override green)
+        for pos in self.current_path:
+            tile = self.get_tile_at(pos[0], pos[1])
+            if tile:
+                tile.highlight(color.blue)
+        
+        # Highlight cursor position in yellow
+        if self.path_cursor:
+            cursor_tile = self.get_tile_at(self.path_cursor[0], self.path_cursor[1])
+            if cursor_tile:
+                cursor_tile.highlight(color.yellow)
                     
     def highlight_attack_range(self, unit):
-        """Highlight all tiles within the unit's attack range using modular system"""
-        if not unit or not self.tile_highlighter:
+        """Highlight all tiles within the unit's attack range in red"""
+        if not unit:
             return
-        
-        # Use the modular tile highlighter to show attack range
-        self.tile_highlighter.set_selected_unit(unit.entity)
+            
+        for x in range(self.grid.width):
+            for y in range(self.grid.height):
+                # Calculate Manhattan distance from unit to tile
+                distance = abs(x - unit.x) + abs(y - unit.y)
+                
+                # Highlight tiles within attack range (excluding unit's own tile)
+                if distance <= unit.attack_range and distance > 0:
+                    # Check if tile is within grid bounds
+                    if 0 <= x < self.grid.width and 0 <= y < self.grid.height:
+                        tile = self.get_tile_at(x, y)
+                        if tile:
+                            tile.highlight(color.red)
                     
     def clear_highlights(self):
-        # Clear unit highlighting
+        for tile in self.tile_entities:
+            tile.unhighlight()
         for entity in self.unit_entities:
             entity.unhighlight()
-        
-        # Clear tile highlighting through modular system
-        if self.tile_highlighter:
-            self.tile_highlighter.clear_all_highlights()
 
     def refresh_all_ap(self):
         for unit in self.units:
@@ -1103,7 +831,7 @@ class TacticalRPG:
 
     def update_unit_positions(self):
         for entity in self.unit_entities:
-            entity.position = (entity.unit.x + 0.5, 1.0, entity.unit.y + 0.5)  # Center on grid tiles
+            entity.position = (entity.unit.x, 1.0, entity.unit.y)
 from ursina.prefabs.window_panel import WindowPanel
 
 class ControlPanel:
@@ -1203,25 +931,6 @@ class ControlPanel:
 control_panel = ControlPanel()
 
 def input(key):
-    # Handle mouse clicks for tile selection
-    if key == 'left mouse down':
-        # Check if clicking on a unit first
-        if mouse.hovered_entity and hasattr(mouse.hovered_entity, 'unit'):
-            return  # Let unit entity handle its own click
-        
-        # Handle tile clicks using world coordinates
-        mouse_pos = mouse.world_point
-        if mouse_pos:
-            # Convert world position to grid coordinates
-            # Floor the coordinates to get the grid tile
-            grid_x = int(mouse_pos.x) if mouse_pos.x >= 0 else -1
-            grid_z = int(mouse_pos.z) if mouse_pos.z >= 0 else -1
-            
-            # Check if click is within grid bounds
-            if 0 <= grid_x < 8 and 0 <= grid_z < 8:
-                game.handle_tile_click(grid_x, grid_z)
-        return
-    
     # Handle path movement for selected unit ONLY if in move mode
     if (game.selected_unit and game.current_mode == "move" and 
         key in ['w', 'a', 's', 'd', 'enter']):
@@ -1238,22 +947,9 @@ game = TacticalRPG()
 control_panel.set_game_reference(game)
 
 def update():
-    # Update ECS World - this processes all systems
-    try:
-        game.world.update(time.dt)
-    except Exception as e:
-        print(f"⚠ ECS World update error: {e}")
-    
     # Update camera
     game.camera_controller.handle_mouse_input()
     game.camera_controller.update_camera()
-    
-    # Update interaction manager (if available)
-    if game.interaction_manager:
-        try:
-            game.interaction_manager.update(time.dt)
-        except Exception as e:
-            print(f"⚠ InteractionManager update error: {e}")
     
     # Update control panel with current unit info
     if game.turn_manager and game.turn_manager.current_unit() and not game.selected_unit:
