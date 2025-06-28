@@ -6,254 +6,110 @@ Toggleable with 'c' key, shows selected unit's complete information.
 """
 
 from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
-from .base_panel import BasePanel, PanelConfig
 
 try:
-    from ursina import Entity, Text, Button, color, camera
+    from ursina import Text, Button, color
+    from ursina.prefabs.window_panel import WindowPanel
     URSINA_AVAILABLE = True
 except ImportError:
     URSINA_AVAILABLE = False
 
 
-@dataclass
-class EquipmentSlot:
-    """Represents an equipment slot in the character panel."""
-    slot_id: int
-    slot_name: str
-    position: tuple
-    equipped_item: Optional[Any] = None
-
-
-class CharacterPanel(BasePanel):
+class CharacterPanel:
     """
-    Character information panel showing stats, equipment, and character details.
+    Character information panel showing stats and character details.
     
     Features:
-    - Character name, class, race, and power level
-    - Physical, magical, spiritual stats
+    - Character name, class, and level
+    - Core attribute stats (STR, FOR, FIN, WIS, WON, WOR)
     - Attack and defense values
-    - Paper doll with 8 equipment slots
-    - Equipment slot highlighting and interaction
+    - Equipment summary
     """
     
     def __init__(self, game_reference: Optional[Any] = None):
         """Initialize character panel."""
-        config = PanelConfig(
-            title="Character",
-            width=0.5,
-            height=0.7,
-            x_position=0.75,  # Right side of screen
-            y_position=0.65,
-            z_layer=2,
-            visible=False
-        )
-        
-        # Character data
-        self.current_character = None
-        self.stat_texts = {}
-        self.equipment_slots = []
-        
-        super().__init__(config, game_reference)
-    
-    def _create_content(self):
-        """Create character panel content."""
         if not URSINA_AVAILABLE:
-            return
+            raise ImportError("Ursina is required for CharacterPanel")
         
-        # Character info section (top)
-        self._create_character_info()
+        self.game_reference = game_reference
+        self.current_character = None
         
-        # Stats section (middle)
-        self._create_stats_display()
+        # Create text elements
+        self._create_text_elements()
         
-        # Equipment section (bottom)
-        self._create_equipment_slots()
+        # Create main panel
+        self._create_main_panel()
         
-        # Initial content
-        self._update_display()
+        # Position panel
+        self._position_panel()
     
-    def _create_character_info(self):
-        """Create character name, class, race, and power level display."""
-        y_start = 0.25
+    def _create_text_elements(self):
+        """Create all text display elements."""
+        self.character_name_text = Text('No Character Selected')
+        self.character_class_text = Text('Class: Unknown')
+        self.character_level_text = Text('Level: --')
         
-        # Character name
-        self.name_text = self.add_text_element(
-            "Name: No Character Selected",
-            (0, y_start, -0.01),
-            scale=1.2,
-            text_color=color.yellow
-        )
-        
-        # Class and race
-        self.class_race_text = self.add_text_element(
-            "Class: Unknown | Race: Terran",
-            (0, y_start - 0.04, -0.01),
-            scale=0.8,
-            text_color=color.light_gray
-        )
-        
-        # Power level
-        self.power_level_text = self.add_text_element(
-            "Power Level: --",
-            (0, y_start - 0.08, -0.01),
-            scale=1.0,
-            text_color=color.cyan
-        )
-    
-    def _create_stats_display(self):
-        """Create stats display section."""
-        y_start = 0.1
-        
-        # Section header
-        self.add_text_element(
-            "--- STATS ---",
-            (0, y_start, -0.01),
-            scale=1.0,
-            text_color=color.white
-        )
-        
-        # Core attributes (left column)
-        attr_y = y_start - 0.05
-        self.strength_text = self.add_text_element(
-            "STR: --",
-            (-0.15, attr_y, -0.01),
-            scale=0.7,
-            text_color=color.red
-        )
-        
-        self.fortitude_text = self.add_text_element(
-            "FOR: --",
-            (-0.15, attr_y - 0.03, -0.01),
-            scale=0.7,
-            text_color=color.orange
-        )
-        
-        self.finesse_text = self.add_text_element(
-            "FIN: --",
-            (-0.15, attr_y - 0.06, -0.01),
-            scale=0.7,
-            text_color=color.green
-        )
-        
-        # Mental attributes (right column)
-        self.wisdom_text = self.add_text_element(
-            "WIS: --",
-            (0.05, attr_y, -0.01),
-            scale=0.7,
-            text_color=color.blue
-        )
-        
-        self.wonder_text = self.add_text_element(
-            "WON: --",
-            (0.05, attr_y - 0.03, -0.01),
-            scale=0.7,
-            text_color=color.purple
-        )
-        
-        self.worthy_text = self.add_text_element(
-            "WOR: --",
-            (0.05, attr_y - 0.06, -0.01),
-            scale=0.7,
-            text_color=color.gold
-        )
+        # Core stats
+        self.strength_text = Text('STR: --')
+        self.fortitude_text = Text('FOR: --')
+        self.finesse_text = Text('FIN: --')
+        self.wisdom_text = Text('WIS: --')
+        self.wonder_text = Text('WON: --')
+        self.worthy_text = Text('WOR: --')
         
         # Combat stats
-        combat_y = attr_y - 0.12
-        self.add_text_element(
-            "--- COMBAT ---",
-            (0, combat_y, -0.01),
-            scale=0.9,
-            text_color=color.white
-        )
-        
-        # Attack values
-        attack_y = combat_y - 0.04
-        self.physical_attack_text = self.add_text_element(
-            "Physical ATK: --",
-            (-0.15, attack_y, -0.01),
-            scale=0.6,
-            text_color=color.red
-        )
-        
-        self.magical_attack_text = self.add_text_element(
-            "Magical ATK: --",
-            (-0.15, attack_y - 0.025, -0.01),
-            scale=0.6,
-            text_color=color.blue
-        )
-        
-        self.spiritual_attack_text = self.add_text_element(
-            "Spiritual ATK: --",
-            (-0.15, attack_y - 0.05, -0.01),
-            scale=0.6,
-            text_color=color.purple
-        )
-        
-        # Defense values
-        self.physical_defense_text = self.add_text_element(
-            "Physical DEF: --",
-            (0.05, attack_y, -0.01),
-            scale=0.6,
-            text_color=color.red
-        )
-        
-        self.magical_defense_text = self.add_text_element(
-            "Magical DEF: --",
-            (0.05, attack_y - 0.025, -0.01),
-            scale=0.6,
-            text_color=color.blue
-        )
-        
-        self.spiritual_defense_text = self.add_text_element(
-            "Spiritual DEF: --",
-            (0.05, attack_y - 0.05, -0.01),
-            scale=0.6,
-            text_color=color.purple
-        )
+        self.physical_attack_text = Text('Physical ATK: --')
+        self.magical_attack_text = Text('Magical ATK: --')
+        self.spiritual_attack_text = Text('Spiritual ATK: --')
+        self.physical_defense_text = Text('Physical DEF: --')
+        self.magical_defense_text = Text('Magical DEF: --')
+        self.spiritual_defense_text = Text('Spiritual DEF: --')
     
-    def _create_equipment_slots(self):
-        """Create paper doll equipment slots."""
-        # Equipment section header
-        eq_y = -0.15
-        self.add_text_element(
-            "--- EQUIPMENT ---",
-            (0, eq_y, -0.01),
-            scale=0.9,
-            text_color=color.white
+    def _create_main_panel(self):
+        """Create the main window panel with all content."""
+        self.panel = WindowPanel(
+            title='Character Information',
+            content=(
+                self.character_name_text,
+                self.character_class_text,
+                self.character_level_text,
+                Text('--- ATTRIBUTES ---'),
+                self.strength_text,
+                self.fortitude_text,
+                self.finesse_text,
+                self.wisdom_text,
+                self.wonder_text,
+                self.worthy_text,
+                Text('--- COMBAT ---'),
+                self.physical_attack_text,
+                self.magical_attack_text,
+                self.spiritual_attack_text,
+                self.physical_defense_text,
+                self.magical_defense_text,
+                self.spiritual_defense_text
+            ),
+            popup=False
         )
-        
-        # Define 8 equipment slots (4 left, 4 right)
-        slot_definitions = [
-            (1, "Helmet", (-0.18, eq_y - 0.05)),
-            (2, "Armor", (-0.18, eq_y - 0.08)),
-            (3, "Gloves", (-0.18, eq_y - 0.11)),
-            (4, "Boots", (-0.18, eq_y - 0.14)),
-            (5, "Main-hand", (0.08, eq_y - 0.05)),
-            (6, "Off-hand", (0.08, eq_y - 0.08)),
-            (7, "Back", (0.08, eq_y - 0.11)),
-            (8, "Talisman", (0.08, eq_y - 0.14))
-        ]
-        
-        self.equipment_slots = []
-        self.equipment_texts = {}
-        
-        for slot_id, slot_name, position in slot_definitions:
-            # Create equipment slot
-            slot = EquipmentSlot(slot_id, slot_name, position)
-            self.equipment_slots.append(slot)
-            
-            # Create text display for slot
-            slot_text = self.add_text_element(
-                f"{slot_name}: Empty",
-                position,
-                scale=0.6,
-                text_color=color.gray
-            )
-            
-            self.equipment_texts[slot_id] = slot_text
+        # Start hidden
+        self.panel.enabled = False
     
-    def _update_display(self):
+    def _position_panel(self):
+        """Position the panel on the right side of the screen."""
+        self.panel.x = 0.5
+        self.panel.y = 0.0
+        self.panel.layout()
+    
+    def set_character(self, character):
+        """
+        Set the character to display.
+        
+        Args:
+            character: Character object to display, or None to clear
+        """
+        self.current_character = character
+        self.update_display()
+    
+    def update_display(self):
         """Update all display elements with current character data."""
         if not self.current_character:
             self._clear_display()
@@ -262,21 +118,12 @@ class CharacterPanel(BasePanel):
         char = self.current_character
         
         # Update character info
-        self.name_text.text = f"Name: {getattr(char, 'name', 'Unknown')}"
-        
-        # Calculate class from stats (placeholder logic)
-        character_class = self._calculate_character_class(char)
-        self.class_race_text.text = f"Class: {character_class} | Race: Terran"
-        
-        # Calculate power level
-        power_level = self._calculate_power_level(char)
-        self.power_level_text.text = f"Power Level: {power_level}"
+        self.character_name_text.text = f"Name: {getattr(char, 'name', 'Unknown')}"
+        self.character_class_text.text = f"Class: {self._calculate_character_class(char)}"
+        self.character_level_text.text = f"Level: {getattr(char, 'level', 1)}"
         
         # Update stats
         self._update_stats_display(char)
-        
-        # Update equipment
-        self._update_equipment_display(char)
     
     def _update_stats_display(self, character):
         """Update stats section with character data."""
@@ -307,17 +154,9 @@ class CharacterPanel(BasePanel):
         self.magical_defense_text.text = f"Magical DEF: {getattr(character, 'magical_defense', 0)}"
         self.spiritual_defense_text.text = f"Spiritual DEF: {getattr(character, 'spiritual_defense', 0)}"
     
-    def _update_equipment_display(self, character):
-        """Update equipment slots with character's equipped items."""
-        # For now, show empty slots - equipment system not fully implemented
-        for slot_id, text_element in self.equipment_texts.items():
-            slot = self.equipment_slots[slot_id - 1]
-            text_element.text = f"{slot.slot_name}: Empty"
-            text_element.color = color.gray
-    
     def _calculate_character_class(self, character) -> str:
         """Calculate character class based on stats and abilities."""
-        # Simplified class calculation - can be enhanced later
+        # Simplified class calculation
         if not hasattr(character, 'stats') or not hasattr(character.stats, 'attributes'):
             return "Warrior"  # Default
         
@@ -347,26 +186,11 @@ class CharacterPanel(BasePanel):
         
         return class_mapping.get(highest_stat, 'Adventurer')
     
-    def _calculate_power_level(self, character) -> int:
-        """Calculate character power level (1-99 scale)."""
-        if not hasattr(character, 'stats') or not hasattr(character.stats, 'attributes'):
-            return 1
-        
-        attrs = character.stats.attributes
-        
-        # Sum all attributes
-        total_stats = (attrs.strength + attrs.fortitude + attrs.finesse + 
-                      attrs.wisdom + attrs.wonder + attrs.worthy)
-        
-        # Convert to 1-99 scale (assuming 60 is baseline, 120 is high-end)
-        power_level = min(99, max(1, int((total_stats - 60) * 2 + 30)))
-        return power_level
-    
     def _clear_display(self):
         """Clear all character information."""
-        self.name_text.text = "Name: No Character Selected"
-        self.class_race_text.text = "Class: Unknown | Race: Terran"
-        self.power_level_text.text = "Power Level: --"
+        self.character_name_text.text = "Name: No Character Selected"
+        self.character_class_text.text = "Class: Unknown"
+        self.character_level_text.text = "Level: --"
         
         # Clear stats
         for text_element in [self.strength_text, self.fortitude_text, self.finesse_text,
@@ -376,22 +200,29 @@ class CharacterPanel(BasePanel):
             if hasattr(text_element, 'text'):
                 original_label = text_element.text.split(':')[0]
                 text_element.text = f"{original_label}: --"
-        
-        # Clear equipment
-        for slot_id, text_element in self.equipment_texts.items():
-            slot = self.equipment_slots[slot_id - 1]
-            text_element.text = f"{slot.slot_name}: Empty"
-            text_element.color = color.gray
     
-    def set_character(self, character):
-        """
-        Set the character to display.
-        
-        Args:
-            character: Character object to display, or None to clear
-        """
-        self.current_character = character
-        self._update_display()
+    def toggle_visibility(self):
+        """Toggle the visibility of the character panel."""
+        if hasattr(self, 'panel') and self.panel:
+            self.panel.enabled = not self.panel.enabled
+            status = "shown" if self.panel.enabled else "hidden"
+            print(f"Character panel {status}")
+    
+    def show(self):
+        """Show the character panel."""
+        if hasattr(self, 'panel') and self.panel:
+            self.panel.enabled = True
+    
+    def hide(self):
+        """Hide the character panel."""
+        if hasattr(self, 'panel') and self.panel:
+            self.panel.enabled = False
+    
+    def is_visible(self) -> bool:
+        """Check if the character panel is currently visible."""
+        if hasattr(self, 'panel') and self.panel:
+            return self.panel.enabled
+        return False
     
     def update_content(self, data: Dict[str, Any]):
         """
@@ -403,15 +234,16 @@ class CharacterPanel(BasePanel):
         if 'character' in data:
             self.set_character(data['character'])
     
-    def get_equipment_slot_at_position(self, x: float, y: float) -> Optional[EquipmentSlot]:
+    def set_game_reference(self, game: Any):
         """
-        Get equipment slot at given screen position (for future click handling).
+        Set reference to the main game object.
         
         Args:
-            x, y: Screen coordinates
-            
-        Returns:
-            EquipmentSlot if position matches a slot, None otherwise
+            game: Main game object
         """
-        # For future implementation when adding click interactions
-        return None
+        self.game_reference = game
+    
+    def cleanup(self):
+        """Clean up panel resources."""
+        if hasattr(self, 'panel') and self.panel:
+            self.panel.enabled = False

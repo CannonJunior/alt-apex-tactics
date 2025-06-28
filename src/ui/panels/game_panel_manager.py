@@ -6,7 +6,6 @@ Coordinates panel visibility and provides unified interface for panel interactio
 """
 
 from typing import Optional, Dict, Any
-from .base_panel import PanelManager
 from .character_panel import CharacterPanel
 from .inventory_panel import InventoryPanel
 from .talent_panel import TalentPanel
@@ -14,11 +13,11 @@ from .party_panel import PartyPanel
 from .upgrade_panel import UpgradePanel
 
 
-class GamePanelManager(PanelManager):
+class GamePanelManager:
     """
     Enhanced panel manager specifically for Apex Tactics game panels.
     
-    Manages all five main game panels:
+    Manages game panels:
     - Character Panel ('c' key)
     - Inventory Panel ('i' key)
     - Talent Panel ('t' key)
@@ -33,9 +32,10 @@ class GamePanelManager(PanelManager):
         Args:
             game_reference: Reference to main game object
         """
-        super().__init__()
-        
         self.game_reference = game_reference
+        self.panels: Dict[str, Any] = {}
+        self.key_bindings: Dict[str, str] = {}
+        self.active_panel: Optional[str] = None
         
         # Initialize all panels
         self._create_panels()
@@ -43,44 +43,71 @@ class GamePanelManager(PanelManager):
         # Register panels with keyboard shortcuts
         self._register_panels()
         
-        print("✅ Game Panel Manager initialized with 5 panels")
+        print(f"✅ Game Panel Manager initialized with {len(self.panels)} panels")
     
     def _create_panels(self):
         """Create all game panels."""
         try:
             self.character_panel = CharacterPanel(self.game_reference)
-            self.inventory_panel = InventoryPanel(self.game_reference)
-            self.talent_panel = TalentPanel(self.game_reference)
-            self.party_panel = PartyPanel(self.game_reference)
-            self.upgrade_panel = UpgradePanel(self.game_reference)
-            
-            print("✅ All panels created successfully")
+            print("✅ Character panel created successfully")
             
         except Exception as e:
-            print(f"❌ Error creating panels: {e}")
-            # Create minimal fallback
+            print(f"❌ Error creating character panel: {e}")
             self.character_panel = None
+        
+        try:
+            self.inventory_panel = InventoryPanel(self.game_reference)
+            print("✅ Inventory panel created successfully")
+            
+        except Exception as e:
+            print(f"❌ Error creating inventory panel: {e}")
             self.inventory_panel = None
+        
+        try:
+            self.talent_panel = TalentPanel(self.game_reference)
+            print("✅ Talent panel created successfully")
+            
+        except Exception as e:
+            print(f"❌ Error creating talent panel: {e}")
             self.talent_panel = None
+        
+        try:
+            self.party_panel = PartyPanel(self.game_reference)
+            print("✅ Party panel created successfully")
+            
+        except Exception as e:
+            print(f"❌ Error creating party panel: {e}")
             self.party_panel = None
+        
+        try:
+            self.upgrade_panel = UpgradePanel(self.game_reference)
+            print("✅ Upgrade panel created successfully")
+            
+        except Exception as e:
+            print(f"❌ Error creating upgrade panel: {e}")
             self.upgrade_panel = None
     
     def _register_panels(self):
         """Register panels with their keyboard shortcuts."""
         if self.character_panel:
-            self.register_panel("character", self.character_panel, "c")
+            self.panels["character"] = self.character_panel
+            self.key_bindings["c"] = "character"
         
         if self.inventory_panel:
-            self.register_panel("inventory", self.inventory_panel, "i")
+            self.panels["inventory"] = self.inventory_panel
+            self.key_bindings["i"] = "inventory"
         
         if self.talent_panel:
-            self.register_panel("talent", self.talent_panel, "t")
+            self.panels["talent"] = self.talent_panel
+            self.key_bindings["t"] = "talent"
         
         if self.party_panel:
-            self.register_panel("party", self.party_panel, "p")
+            self.panels["party"] = self.party_panel
+            self.key_bindings["p"] = "party"
         
         if self.upgrade_panel:
-            self.register_panel("upgrade", self.upgrade_panel, "u")
+            self.panels["upgrade"] = self.upgrade_panel
+            self.key_bindings["u"] = "upgrade"
     
     def update_character_data(self, character):
         """
@@ -92,52 +119,67 @@ class GamePanelManager(PanelManager):
         # Update character panel
         if self.character_panel:
             self.character_panel.set_character(character)
-        
-        # Update talent panel
-        if self.talent_panel:
-            self.talent_panel.set_character(character)
-        
-    def update_party_data(self, party_data: Dict[str, Any]):
+    
+    def show_panel(self, name: str):
         """
-        Update party panel with party information.
+        Show specific panel (hides others if exclusive).
         
         Args:
-            party_data: Dictionary containing party information
+            name: Panel name to show
         """
-        if self.party_panel:
-            self.party_panel.update_content(party_data)
+        if name not in self.panels:
+            return
+        
+        # Hide current active panel
+        if self.active_panel and self.active_panel != name:
+            self.panels[self.active_panel].hide()
+        
+        # Show requested panel
+        self.panels[name].show()
+        self.active_panel = name
     
-    def update_inventory_data(self, inventory_data: Dict[str, Any]):
+    def hide_panel(self, name: str):
         """
-        Update inventory panel with inventory information.
+        Hide specific panel.
         
         Args:
-            inventory_data: Dictionary containing inventory information
+            name: Panel name to hide
         """
-        if self.inventory_panel:
-            self.inventory_panel.update_content(inventory_data)
+        if name in self.panels:
+            self.panels[name].hide()
+            if self.active_panel == name:
+                self.active_panel = None
     
-    def update_upgrade_data(self, upgrade_data: Dict[str, Any]):
+    def toggle_panel(self, name: str):
         """
-        Update upgrade panel with upgrade information.
+        Toggle specific panel visibility.
         
         Args:
-            upgrade_data: Dictionary containing upgrade information
+            name: Panel name to toggle
         """
-        if self.upgrade_panel:
-            self.upgrade_panel.update_content(upgrade_data)
+        if name not in self.panels:
+            return
+            
+        if self.panels[name].is_visible():
+            self.hide_panel(name)
+        else:
+            self.show_panel(name)
     
-    def get_panel_status(self) -> Dict[str, bool]:
+    def handle_key_input(self, key: str) -> bool:
         """
-        Get visibility status of all panels.
+        Handle keyboard input for panel toggles.
         
+        Args:
+            key: Pressed key
+            
         Returns:
-            Dictionary mapping panel names to visibility status
+            True if key was handled, False otherwise
         """
-        status = {}
-        for name, panel in self.panels.items():
-            status[name] = panel.is_visible if panel else False
-        return status
+        if key in self.key_bindings:
+            panel_name = self.key_bindings[key]
+            self.toggle_panel(panel_name)
+            return True
+        return False
     
     def hide_all_panels(self):
         """Hide all panels."""
@@ -145,17 +187,6 @@ class GamePanelManager(PanelManager):
             if panel:
                 panel.hide()
         self.active_panel = None
-    
-    def show_character_panel_for_unit(self, unit):
-        """
-        Show character panel for specific unit.
-        
-        Args:
-            unit: Unit to display in character panel
-        """
-        if self.character_panel:
-            self.character_panel.set_character(unit)
-            self.show_panel("character")
     
     def get_panel_info(self) -> str:
         """
@@ -166,11 +197,11 @@ class GamePanelManager(PanelManager):
         """
         info_lines = [
             "Available UI Panels:",
-            "  [C] Character - Stats, equipment, power level",
-            "  [I] Inventory - Items, equipment, materials",
-            "  [T] Talents - Ability trees and upgrades", 
-            "  [P] Party - Team composition and stats",
-            "  [U] Upgrade - Item tier progression",
+            "  [C] Character - Stats and information",
+            "  [I] Inventory - Party items and equipment",
+            "  [T] Talent - Ability trees and progression",
+            "  [P] Party - Team composition and management",
+            "  [U] Upgrade - Item tier progression system",
             "",
             "Press the corresponding key to toggle each panel."
         ]
@@ -186,7 +217,7 @@ class GamePanelManager(PanelManager):
         Returns:
             True if key was handled by panels, False otherwise
         """
-        # Let parent handle the key input
+        # Handle the key input
         handled = self.handle_key_input(key)
         
         if handled:
@@ -194,7 +225,7 @@ class GamePanelManager(PanelManager):
             if key in ['c', 'i', 't', 'p', 'u']:
                 panel_name = self.key_bindings.get(key, "unknown")
                 if panel_name in self.panels:
-                    is_visible = self.panels[panel_name].is_visible
+                    is_visible = self.panels[panel_name].is_visible()
                     status = "shown" if is_visible else "hidden"
                     print(f"Panel '{panel_name}' {status}")
         
@@ -212,8 +243,9 @@ class GamePanelManager(PanelManager):
                 except Exception as e:
                     print(f"⚠️ Error cleaning up panel: {e}")
         
-        # Clean up base manager
-        self.cleanup_all()
+        self.panels.clear()
+        self.key_bindings.clear()
+        self.active_panel = None
         
         print("✅ Game panel cleanup complete")
 
@@ -237,4 +269,4 @@ def create_game_panels(game_reference: Optional[Any] = None) -> GamePanelManager
     except Exception as e:
         print(f"❌ Failed to create game panels: {e}")
         # Return minimal manager
-        return PanelManager()
+        return GamePanelManager()

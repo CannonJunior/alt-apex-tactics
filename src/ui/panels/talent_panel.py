@@ -1,411 +1,297 @@
 """
 Talent Panel Implementation
 
-Displays talent trees for physical, magical, and spiritual abilities.
-Hierarchical ability progression with prerequisites and unlock paths.
+Displays talent trees with physical, magical, and spiritual ability trees.
+Shows available abilities for assignment in the selected unit.
+Toggleable with 't' key.
 """
 
-from typing import Optional, Dict, Any, List, Set
-from dataclasses import dataclass
-from .base_panel import BasePanel, PanelConfig
+from typing import Optional, Dict, Any, List
 
 try:
-    from ursina import Entity, Text, Button, color, camera
+    from ursina import Text, Button, color
+    from ursina.prefabs.window_panel import WindowPanel
     URSINA_AVAILABLE = True
 except ImportError:
     URSINA_AVAILABLE = False
 
 
-@dataclass
-class TalentNode:
-    """Represents a talent/ability in the talent tree."""
-    id: str
-    name: str
-    description: str
-    talent_type: str  # "Physical", "Magical", "Spiritual"
-    tier: int  # 1-5, with 1 being basic abilities
-    prerequisites: List[str]  # IDs of required talents
-    cost: int  # Points required to unlock
-    unlocked: bool = False
-    position: tuple = (0, 0)  # (x, y) position in tree
-
-
-class TalentPanel(BasePanel):
+class TalentPanel:
     """
-    Talent tree panel for character ability progression.
+    Talent tree panel showing abilities available for assignment.
     
     Features:
-    - Three tabs: Physical, Magical, Spiritual
-    - Hierarchical talent trees with prerequisites
-    - Visual talent point allocation
-    - Unlock status and requirements display
+    - 3 tabs for physical, magical, and spiritual talents
+    - Tree structure with low level abilities at top
+    - Higher level abilities towards bottom
+    - Ability assignment and progression tracking
     """
     
     def __init__(self, game_reference: Optional[Any] = None):
         """Initialize talent panel."""
-        config = PanelConfig(
-            title="Talents",
-            width=0.7,
-            height=0.8,
-            x_position=0.15,  # Left side of screen
-            y_position=0.6,
-            z_layer=2,
-            visible=False
-        )
+        if not URSINA_AVAILABLE:
+            raise ImportError("Ursina is required for TalentPanel")
         
-        # Talent data
+        self.game_reference = game_reference
         self.current_character = None
         self.current_tab = "Physical"
-        self.talent_tabs = ["Physical", "Magical", "Spiritual"]
-        self.talent_trees: Dict[str, List[TalentNode]] = {}
-        self.available_points = {"Physical": 0, "Magical": 0, "Spiritual": 0}
+        self.talent_trees: Dict[str, List[Dict[str, Any]]] = {}
         
-        # UI elements
-        self.tab_buttons = {}
-        self.talent_buttons = {}
+        # Create text elements
+        self._create_text_elements()
+        
+        # Create main panel
+        self._create_main_panel()
+        
+        # Position panel
+        self._position_panel()
+        
+        # Load sample talent data
+        self._load_sample_talents()
+        self._update_display()
+    
+    def _create_text_elements(self):
+        """Create all text display elements."""
+        self.talent_title_text = Text('Talent Trees')
+        self.character_name_text = Text('Character: No Character Selected')
+        self.current_tab_text = Text('Current Tab: Physical')
+        self.available_points_text = Text('Available Points: 0')
+        
+        # Talent display lines (showing up to 12 talents)
         self.talent_texts = []
-        self.connection_lines = []
+        for i in range(12):
+            talent_text = Text(f'Talent {i+1}: Empty')
+            self.talent_texts.append(talent_text)
         
-        super().__init__(config, game_reference)
+        # Tab buttons simulation
+        self.tab_info_text = Text('Tabs: Physical | Magical | Spiritual')
     
-    def _create_content(self):
-        """Create talent panel content."""
-        if not URSINA_AVAILABLE:
-            return
+    def _create_main_panel(self):
+        """Create the main window panel with all content."""
+        content_list = [
+            self.talent_title_text,
+            self.character_name_text,
+            self.current_tab_text,
+            self.available_points_text,
+            Text('--- TALENT TREE ---'),
+        ]
         
-        # Create tab navigation
-        self._create_tab_buttons()
+        # Add talent display texts
+        content_list.extend(self.talent_texts)
         
-        # Create talent point display
-        self._create_points_display()
+        # Add tab information
+        content_list.append(Text('--- CONTROLS ---'))
+        content_list.append(self.tab_info_text)
         
-        # Create talent tree area
-        self._create_talent_tree_area()
-        
-        # Initialize talent trees
-        self._initialize_talent_trees()
-        
-        # Update display
-        self._update_talent_display()
-    
-    def _create_tab_buttons(self):
-        """Create tab buttons for talent categories."""
-        tab_y = 0.32
-        tab_width = 0.12
-        start_x = -0.25
-        
-        for i, tab_name in enumerate(self.talent_tabs):
-            x_pos = start_x + (i * tab_width)
-            
-            button_color = color.purple if tab_name == self.current_tab else color.dark_gray
-            
-            tab_button = self.add_button_element(
-                text=tab_name,
-                position=(x_pos, tab_y, -0.01),
-                size=(tab_width * 0.9, 0.04),
-                callback=lambda t=tab_name: self._switch_tab(t),
-                button_color=button_color
-            )
-            
-            self.tab_buttons[tab_name] = tab_button
-    
-    def _create_points_display(self):
-        """Create talent points display."""
-        points_y = 0.25
-        
-        self.points_text = self.add_text_element(
-            "Available Points: 0",
-            (0, points_y, -0.01),
-            scale=1.0,
-            text_color=color.yellow
+        self.panel = WindowPanel(
+            title='Talent Trees',
+            content=tuple(content_list),
+            popup=False
         )
-        
-        self.character_name_text = self.add_text_element(
-            "Character: None Selected",
-            (0, points_y - 0.04, -0.01),
-            scale=0.8,
-            text_color=color.light_gray
-        )
+        # Start hidden
+        self.panel.enabled = False
     
-    def _create_talent_tree_area(self):
-        """Create the main talent tree display area."""
-        # Create background for talent tree
-        tree_bg = Entity(
-            parent=self.panel_entity,
-            model='cube',
-            color=(0.05, 0.05, 0.1, 0.8),
-            scale=(0.32, 0.4, 0.005),
-            position=(0, -0.05, -0.005)
-        )
-        self.content_elements.append(tree_bg)
-        
-        # Tree area bounds for talent positioning
-        self.tree_bounds = {
-            'x_min': -0.15,
-            'x_max': 0.15,
-            'y_min': -0.25,
-            'y_max': 0.15
+    def _position_panel(self):
+        """Position the panel on the right side of the screen."""
+        self.panel.x = 0.3
+        self.panel.y = 0.0
+        self.panel.layout()
+    
+    def _load_sample_talents(self):
+        """Load sample talent data for testing."""
+        self.talent_trees = {
+            "Physical": [
+                {"name": "Basic Strike", "level": 1, "tier": "Novice", "learned": True, "description": "Basic melee attack"},
+                {"name": "Power Attack", "level": 2, "tier": "Novice", "learned": True, "description": "Stronger but slower attack"},
+                {"name": "Weapon Mastery", "level": 3, "tier": "Adept", "learned": False, "description": "Increased weapon proficiency"},
+                {"name": "Berserker Rage", "level": 4, "tier": "Adept", "learned": False, "description": "Temporary damage boost"},
+                {"name": "Whirlwind", "level": 5, "tier": "Expert", "learned": False, "description": "Attack all adjacent enemies"},
+                {"name": "Legendary Strike", "level": 6, "tier": "Master", "learned": False, "description": "Devastating single attack"},
+            ],
+            "Magical": [
+                {"name": "Magic Missile", "level": 1, "tier": "Novice", "learned": True, "description": "Basic ranged spell"},
+                {"name": "Heal", "level": 2, "tier": "Novice", "learned": True, "description": "Restore health points"},
+                {"name": "Fireball", "level": 3, "tier": "Adept", "learned": False, "description": "Area damage spell"},
+                {"name": "Lightning Bolt", "level": 4, "tier": "Adept", "learned": False, "description": "Chain lightning attack"},
+                {"name": "Teleport", "level": 5, "tier": "Expert", "learned": False, "description": "Instant movement"},
+                {"name": "Meteor", "level": 6, "tier": "Master", "learned": False, "description": "Massive area devastation"},
+            ],
+            "Spiritual": [
+                {"name": "Inner Peace", "level": 1, "tier": "Novice", "learned": True, "description": "Restore mental energy"},
+                {"name": "Blessing", "level": 2, "tier": "Novice", "learned": True, "description": "Temporary stat boost"},
+                {"name": "Spirit Shield", "level": 3, "tier": "Adept", "learned": False, "description": "Magical damage protection"},
+                {"name": "Commune", "level": 4, "tier": "Adept", "learned": False, "description": "Communicate with spirits"},
+                {"name": "Astral Projection", "level": 5, "tier": "Expert", "learned": False, "description": "Scout distant locations"},
+                {"name": "Divine Intervention", "level": 6, "tier": "Master", "learned": False, "description": "Ultimate protection"},
+            ],
         }
     
-    def _initialize_talent_trees(self):
-        """Initialize talent tree data for all categories."""
-        # Physical talents
-        self.talent_trees["Physical"] = [
-            TalentNode("phys_basic_attack", "Power Strike", "Increases physical attack damage", "Physical", 1, [], 1, position=(-0.1, 0.1)),
-            TalentNode("phys_defense", "Iron Skin", "Increases physical defense", "Physical", 1, [], 1, position=(0.1, 0.1)),
-            TalentNode("phys_charge", "Charge Attack", "Rush forward and attack", "Physical", 2, ["phys_basic_attack"], 2, position=(-0.1, 0.05)),
-            TalentNode("phys_berserker", "Berserker Rage", "Attack speed increases when low HP", "Physical", 3, ["phys_charge"], 3, position=(-0.1, 0)),
-            TalentNode("phys_fortress", "Fortress Stance", "Massive defense boost, cannot move", "Physical", 3, ["phys_defense"], 3, position=(0.1, 0)),
-            TalentNode("phys_master", "Weapon Master", "Mastery of all physical combat", "Physical", 5, ["phys_berserker", "phys_fortress"], 5, position=(0, -0.1))
-        ]
+    def _update_display(self):
+        """Update all display elements with current talent data."""
+        # Update character and tab information
+        char_name = self.current_character.name if self.current_character else "No Character Selected"
+        self.character_name_text.text = f'Character: {char_name}'
+        self.current_tab_text.text = f'Current Tab: {self.current_tab}'
         
-        # Magical talents
-        self.talent_trees["Magical"] = [
-            TalentNode("mag_basic_spell", "Magic Missile", "Basic magical projectile", "Magical", 1, [], 1, position=(-0.1, 0.1)),
-            TalentNode("mag_shield", "Mage Shield", "Magical damage protection", "Magical", 1, [], 1, position=(0.1, 0.1)),
-            TalentNode("mag_fireball", "Fireball", "Area fire damage spell", "Magical", 2, ["mag_basic_spell"], 2, position=(-0.1, 0.05)),
-            TalentNode("mag_ice", "Ice Storm", "Freezing area attack", "Magical", 3, ["mag_fireball"], 3, position=(-0.1, 0)),
-            TalentNode("mag_ward", "Arcane Ward", "Reflect magical attacks", "Magical", 3, ["mag_shield"], 3, position=(0.1, 0)),
-            TalentNode("mag_master", "Archmage", "Master of magical arts", "Magical", 5, ["mag_ice", "mag_ward"], 5, position=(0, -0.1))
-        ]
+        # Update available points (sample data)
+        available_points = 3 if self.current_character else 0
+        self.available_points_text.text = f'Available Points: {available_points}'
         
-        # Spiritual talents
-        self.talent_trees["Spiritual"] = [
-            TalentNode("spir_heal", "Healing Light", "Restore HP to target", "Spiritual", 1, [], 1, position=(-0.1, 0.1)),
-            TalentNode("spir_bless", "Divine Blessing", "Temporary stat boost", "Spiritual", 1, [], 1, position=(0.1, 0.1)),
-            TalentNode("spir_sanctuary", "Sanctuary", "Create protective area", "Spiritual", 2, ["spir_heal"], 2, position=(-0.1, 0.05)),
-            TalentNode("spir_resurrection", "Resurrection", "Revive fallen allies", "Spiritual", 3, ["spir_sanctuary"], 3, position=(-0.1, 0)),
-            TalentNode("spir_divine_power", "Divine Power", "Massive damage to evil", "Spiritual", 3, ["spir_bless"], 3, position=(0.1, 0)),
-            TalentNode("spir_master", "Saint", "Master of spiritual power", "Spiritual", 5, ["spir_resurrection", "spir_divine_power"], 5, position=(0, -0.1))
-        ]
+        # Get current tab talents
+        current_talents = self.talent_trees.get(self.current_tab, [])
+        
+        # Update talent display (show up to 12 talents)
+        for i, talent_text in enumerate(self.talent_texts):
+            if i < len(current_talents):
+                talent = current_talents[i]
+                status = "✓" if talent['learned'] else "○"
+                talent_text.text = f"{status} Lv{talent['level']} {talent['name']} ({talent['tier']})"
+            else:
+                talent_text.text = f'Talent {i+1}: Empty'
     
-    def _switch_tab(self, tab_name: str):
-        """Switch to different talent category tab."""
-        self.current_tab = tab_name
-        
-        # Update tab button colors
-        for tab, button in self.tab_buttons.items():
-            if hasattr(button, 'color'):
-                button.color = color.purple if tab == tab_name else color.dark_gray
-        
-        self._update_talent_display()
-    
-    def _update_talent_display(self):
-        """Update the talent tree display for current tab."""
-        # Clear existing talent UI elements
-        self._clear_talent_display()
-        
-        # Update points display
-        available_points = self.available_points.get(self.current_tab, 0)
-        self.points_text.text = f"Available {self.current_tab} Points: {available_points}"
-        
-        # Get talents for current tab
-        talents = self.talent_trees.get(self.current_tab, [])
-        
-        # Create talent nodes
-        for talent in talents:
-            self._create_talent_node(talent)
-        
-        # Draw connections between related talents
-        self._draw_talent_connections(talents)
-    
-    def _create_talent_node(self, talent: TalentNode):
-        """Create visual representation of a talent node."""
-        # Determine colors based on state
-        if talent.unlocked:
-            node_color = color.green
-            text_color = color.white
-        elif self._can_unlock_talent(talent):
-            node_color = color.yellow
-            text_color = color.black
-        else:
-            node_color = color.gray
-            text_color = color.dark_gray
-        
-        # Create talent button
-        talent_button = self.add_button_element(
-            text=f"T{talent.tier}",
-            position=(talent.position[0], talent.position[1], -0.01),
-            size=(0.04, 0.03),
-            callback=lambda t=talent: self._talent_clicked(t),
-            button_color=node_color
-        )
-        
-        self.talent_buttons[talent.id] = talent_button
-        
-        # Create talent name text
-        name_text = self.add_text_element(
-            text=talent.name,
-            position=(talent.position[0], talent.position[1] - 0.025, -0.01),
-            scale=0.4,
-            text_color=text_color
-        )
-        
-        self.talent_texts.append(name_text)
-        
-        # Create cost text
-        cost_text = self.add_text_element(
-            text=f"Cost: {talent.cost}",
-            position=(talent.position[0], talent.position[1] - 0.04, -0.01),
-            scale=0.3,
-            text_color=text_color
-        )
-        
-        self.talent_texts.append(cost_text)
-    
-    def _draw_talent_connections(self, talents: List[TalentNode]):
-        """Draw connection lines between related talents."""
-        # Create a lookup for talents by ID
-        talent_lookup = {talent.id: talent for talent in talents}
-        
-        for talent in talents:
-            for prereq_id in talent.prerequisites:
-                if prereq_id in talent_lookup:
-                    prereq_talent = talent_lookup[prereq_id]
-                    self._create_connection_line(prereq_talent.position, talent.position)
-    
-    def _create_connection_line(self, start_pos: tuple, end_pos: tuple):
-        """Create a visual connection line between two talent positions."""
-        # Calculate line position and rotation
-        mid_x = (start_pos[0] + end_pos[0]) / 2
-        mid_y = (start_pos[1] + end_pos[1]) / 2
-        
-        # Create line entity
-        line = Entity(
-            parent=self.panel_entity,
-            model='cube',
-            color=color.dark_gray,
-            scale=(0.002, abs(end_pos[1] - start_pos[1]), 0.001),
-            position=(mid_x, mid_y, -0.002)
-        )
-        
-        self.connection_lines.append(line)
-    
-    def _can_unlock_talent(self, talent: TalentNode) -> bool:
-        """Check if talent can be unlocked (prerequisites met and points available)."""
-        if talent.unlocked:
-            return False
-        
-        # Check prerequisites
-        for prereq_id in talent.prerequisites:
-            prereq_talent = self._find_talent_by_id(prereq_id)
-            if not prereq_talent or not prereq_talent.unlocked:
-                return False
-        
-        # Check available points
-        available_points = self.available_points.get(self.current_tab, 0)
-        return available_points >= talent.cost
-    
-    def _find_talent_by_id(self, talent_id: str) -> Optional[TalentNode]:
-        """Find talent node by ID across all trees."""
-        for tree in self.talent_trees.values():
-            for talent in tree:
-                if talent.id == talent_id:
-                    return talent
-        return None
-    
-    def _talent_clicked(self, talent: TalentNode):
-        """Handle talent node click."""
-        if talent.unlocked:
-            # Show talent details
-            print(f"Talent: {talent.name}")
-            print(f"Description: {talent.description}")
-        elif self._can_unlock_talent(talent):
-            # Unlock talent
-            self._unlock_talent(talent)
-        else:
-            # Show why can't unlock
-            self._show_talent_requirements(talent)
-    
-    def _unlock_talent(self, talent: TalentNode):
-        """Unlock a talent if possible."""
-        if not self._can_unlock_talent(talent):
-            return False
-        
-        # Spend points
-        self.available_points[self.current_tab] -= talent.cost
-        talent.unlocked = True
-        
-        # Refresh display
-        self._update_talent_display()
-        
-        print(f"Unlocked talent: {talent.name}")
-        return True
-    
-    def _show_talent_requirements(self, talent: TalentNode):
-        """Show what's required to unlock a talent."""
-        requirements = []
-        
-        # Check prerequisites
-        for prereq_id in talent.prerequisites:
-            prereq_talent = self._find_talent_by_id(prereq_id)
-            if prereq_talent and not prereq_talent.unlocked:
-                requirements.append(f"Requires: {prereq_talent.name}")
-        
-        # Check points
-        available_points = self.available_points.get(self.current_tab, 0)
-        if available_points < talent.cost:
-            needed_points = talent.cost - available_points
-            requirements.append(f"Need {needed_points} more {self.current_tab} points")
-        
-        if requirements:
-            print(f"Cannot unlock {talent.name}:")
-            for req in requirements:
-                print(f"  - {req}")
-    
-    def _clear_talent_display(self):
-        """Clear all talent-related UI elements."""
-        # Clear talent buttons
-        for button in self.talent_buttons.values():
-            if hasattr(button, 'enabled'):
-                button.enabled = False
-        self.talent_buttons.clear()
-        
-        # Clear talent texts
-        for text in self.talent_texts:
-            if hasattr(text, 'enabled'):
-                text.enabled = False
-        self.talent_texts.clear()
-        
-        # Clear connection lines
-        for line in self.connection_lines:
-            if hasattr(line, 'enabled'):
-                line.enabled = False
-        self.connection_lines.clear()
+    def switch_tab(self, tab_name: str):
+        """Switch to different talent tree tab."""
+        valid_tabs = ["Physical", "Magical", "Spiritual"]
+        if tab_name in valid_tabs:
+            self.current_tab = tab_name
+            self._update_display()
     
     def set_character(self, character):
-        """Set the character whose talents to display."""
+        """
+        Set the character to display talents for.
+        
+        Args:
+            character: Character object to display, or None to clear
+        """
         self.current_character = character
-        
-        if character:
-            # Update character name
-            char_name = getattr(character, 'name', 'Unknown')
-            self.character_name_text.text = f"Character: {char_name}"
-            
-            # Update available points (placeholder logic)
-            level = getattr(character, 'level', 1)
-            for talent_type in self.talent_tabs:
-                self.available_points[talent_type] = max(0, level - 1)
-        else:
-            self.character_name_text.text = "Character: None Selected"
-            for talent_type in self.talent_tabs:
-                self.available_points[talent_type] = 0
-        
-        self._update_talent_display()
+        self._update_display()
     
-    def add_talent_points(self, talent_type: str, points: int):
-        """Add talent points for specific category."""
-        if talent_type in self.available_points:
-            self.available_points[talent_type] += points
-            if self.current_tab == talent_type:
-                self._update_talent_display()
+    def learn_talent(self, talent_name: str, tab: str = None) -> bool:
+        """
+        Learn a talent for the current character.
+        
+        Args:
+            talent_name: Name of talent to learn
+            tab: Talent tree tab (defaults to current tab)
+            
+        Returns:
+            True if talent was learned successfully
+        """
+        if not self.current_character:
+            return False
+        
+        tab = tab or self.current_tab
+        if tab not in self.talent_trees:
+            return False
+        
+        # Find talent
+        for talent in self.talent_trees[tab]:
+            if talent['name'] == talent_name and not talent['learned']:
+                talent['learned'] = True
+                self._update_display()
+                print(f"{self.current_character.name} learned {talent_name}!")
+                return True
+        
+        return False
+    
+    def get_learned_talents(self, tab: str = None) -> List[Dict[str, Any]]:
+        """
+        Get all learned talents for current character.
+        
+        Args:
+            tab: Specific tab to check (defaults to all tabs)
+            
+        Returns:
+            List of learned talent dictionaries
+        """
+        if not self.current_character:
+            return []
+        
+        learned = []
+        tabs_to_check = [tab] if tab else self.talent_trees.keys()
+        
+        for tab_name in tabs_to_check:
+            if tab_name in self.talent_trees:
+                for talent in self.talent_trees[tab_name]:
+                    if talent['learned']:
+                        learned.append(talent)
+        
+        return learned
+    
+    def get_available_talents(self, tab: str = None) -> List[Dict[str, Any]]:
+        """
+        Get talents available to learn for current character.
+        
+        Args:
+            tab: Specific tab to check (defaults to current tab)
+            
+        Returns:
+            List of available talent dictionaries
+        """
+        if not self.current_character:
+            return []
+        
+        tab = tab or self.current_tab
+        if tab not in self.talent_trees:
+            return []
+        
+        available = []
+        for talent in self.talent_trees[tab]:
+            if not talent['learned']:
+                # Check if prerequisites are met (simplified)
+                if talent['level'] <= 3:  # Assume levels 1-3 are always available
+                    available.append(talent)
+                # Could add more complex prerequisite checking here
+        
+        return available
+    
+    def toggle_visibility(self):
+        """Toggle the visibility of the talent panel."""
+        if hasattr(self, 'panel') and self.panel:
+            self.panel.enabled = not self.panel.enabled
+            status = "shown" if self.panel.enabled else "hidden"
+            print(f"Talent panel {status}")
+    
+    def show(self):
+        """Show the talent panel."""
+        if hasattr(self, 'panel') and self.panel:
+            self.panel.enabled = True
+    
+    def hide(self):
+        """Hide the talent panel."""
+        if hasattr(self, 'panel') and self.panel:
+            self.panel.enabled = False
+    
+    def is_visible(self) -> bool:
+        """Check if the talent panel is currently visible."""
+        if hasattr(self, 'panel') and self.panel:
+            return self.panel.enabled
+        return False
     
     def update_content(self, data: Dict[str, Any]):
-        """Update panel content with new data."""
+        """
+        Update panel content with new data.
+        
+        Args:
+            data: Dictionary with character and talent data
+        """
         if 'character' in data:
             self.set_character(data['character'])
         
-        if 'talent_points' in data:
-            points_data = data['talent_points']
-            for talent_type, points in points_data.items():
-                self.add_talent_points(talent_type, points)
+        if 'talents' in data:
+            self.talent_trees = data['talents']
+            self._update_display()
+    
+    def set_game_reference(self, game: Any):
+        """
+        Set reference to the main game object.
+        
+        Args:
+            game: Main game object
+        """
+        self.game_reference = game
+    
+    def cleanup(self):
+        """Clean up panel resources."""
+        if hasattr(self, 'panel') and self.panel:
+            self.panel.enabled = False

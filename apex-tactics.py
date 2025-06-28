@@ -1,24 +1,27 @@
 """
-Apex Tactics - Modernized with Modular Components
+Apex Tactics - Modular Tactical RPG
 
-This file has been updated to use the modular ECS architecture from src/ while 
-maintaining backwards compatibility with the original monolithic structure.
+Main entry point for the Apex Tactics tactical RPG game. This file serves as the 
+application launcher and coordinator for the modular game architecture.
 
-Components Replaced:
-- UnitType enum → src/components/gameplay/unit_type.py  
-- Unit class → ECS entities with AttributeStats, MovementComponent, etc.
-- BattleGrid → src/core/math/grid.py (TacticalGrid) with legacy wrapper
-- TurnManager → src/game/battle/turn_manager.py with legacy wrapper
+Architecture Overview:
+- Modular ECS system in src/core/ecs/
+- Game controllers in src/game/controllers/
+- UI system in src/ui/ (panels, interaction, visual)
+- Input handling in src/ui/interaction/input_handler.py
+- Game loop management in src/core/game_loop.py
 
-Components Preserved:
-- CameraController (as requested)
-- TacticalRPG main class (enhanced with ECS World)
-- ControlPanel (preserved, could be enhanced later)
-- Ursina-specific visual components (GridTile, UnitEntity) 
-- Main game loop and app initialization
+Key Features:
+- Turn-based tactical combat
+- Character progression and equipment
+- Multiple camera modes (orbit, free, top-down)
+- Comprehensive UI panels for game management
+- Modular component-based architecture
 
-The system now runs both legacy and modular components in parallel, with the ECS 
-World providing enhanced performance and the legacy wrappers ensuring compatibility.
+Controls:
+- Camera: [1] Orbit | [2] Free | [3] Top-down
+- Panels: [R] Control | [C] Character | [I] Inventory | [T] Talents | [P] Party | [U] Upgrade
+- Game: Click units to select | Click tiles to move | WASD for movement planning
 """
 
 from ursina import *
@@ -31,6 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 # Import modular components
 from core.ecs.world import World
 from core.ecs.entity import Entity as ECSEntity
+from core.game_loop import create_game_loop_manager
 from components.stats.attributes import AttributeStats
 from components.gameplay.unit_type import UnitType, UnitTypeComponent
 from components.movement.movement import MovementComponent
@@ -59,88 +63,87 @@ from game.controllers.tactical_rpg_controller import TacticalRPG
 import random
 import math
 
-app = Ursina()
+class GameHandlers:
+    """Container class for game handlers that need to be accessible to global functions."""
+    input_handler = None
+    game_loop_manager = None
 
-# Create a simple ground plane for better visibility  
-ground = create_ground_plane()
-
-# Create the clean grid
-grid_entities = create_clean_grid_lines()
-
-# Mouse detection now handled in the input() function using world coordinates
-
-
-
-# Camera Control System
-
-# Visual Components
-# GridTile class removed - using modular GridVisualizer system instead
-
-
-# Main Game Controller - now using imported TacticalRPG component
-
-# Create control panel
-control_panel = ControlPanel()
-
-# Create game panels manager
-game_panels = None  # Will be initialized after game creation
-
-# Input handler will be initialized after game creation
-input_handler = None
 
 def input(key):
     """Global input function that delegates to the input handler."""
-    if input_handler:
-        input_handler.handle_input(key)
+    if GameHandlers.input_handler:
+        GameHandlers.input_handler.handle_input(key)
 
-# Initialize game with control panel callback and direct control panel reference
-game = TacticalRPG(control_panel_callback=lambda: control_panel, control_panel=control_panel)
-
-# Initialize game panels after game creation
-try:
-    game_panels = create_game_panels(game)
-    print("🎮 Game panels integrated successfully!")
-    print("📋 Available panels: Character (C), Inventory (I), Talents (T), Party (P), Upgrade (U)")
-except Exception as e:
-    print(f"⚠️ Warning: Could not initialize game panels: {e}")
-    game_panels = None
-
-# Initialize input handler after game and panels are created
-input_handler = create_input_handler(game, game_panels)
-print("⌨️ Input handler initialized successfully!")
 
 def update():
-    # Update ECS World - this processes all systems
-    try:
-        game.world.update(time.dt)
-    except Exception as e:
-        print(f"⚠ ECS World update error: {e}")
+    """Global update function that delegates to the game loop manager."""
+    if GameHandlers.game_loop_manager:
+        GameHandlers.game_loop_manager.update()
+
+
+def main():
+    """
+    Main function to initialize and run the Apex Tactics game.
     
-    # Update camera
-    game.camera_controller.handle_mouse_input()
+    Sets up all game systems including:
+    - Ursina application and visual elements
+    - Game controller and ECS systems
+    - UI panels and control systems
+    - Input handling and game loop management
+    """
+    # Initialize Ursina application
+    app = Ursina()
+    
+    # Create visual elements
+    print("🎨 Creating visual elements...")
+    ground = create_ground_plane()
+    grid_entities = create_clean_grid_lines()
+    
+    # Add lighting
+    DirectionalLight(y=10, z=5)
+    
+    # Create control panel
+    print("🎛️ Initializing control panel...")
+    control_panel = ControlPanel()
+    
+    # Initialize main game controller
+    print("🎮 Initializing game controller...")
+    game = TacticalRPG(control_panel_callback=lambda: control_panel, control_panel=control_panel)
+    
+    # Initialize game panels
+    print("📋 Initializing game panels...")
+    game_panels = None
+    try:
+        game_panels = create_game_panels(game)
+        print("🎮 Game panels integrated successfully!")
+        print("📋 Available panels: Character (C), Inventory (I), Talents (T), Party (P), Upgrade (U)")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not initialize game panels: {e}")
+        game_panels = None
+    
+    # Initialize input handler and store in class for global access
+    print("⌨️ Initializing input handler...")
+    GameHandlers.input_handler = create_input_handler(game, game_panels)
+    print("⌨️ Input handler initialized successfully!")
+    
+    # Initialize game loop manager and store in class for global access
+    print("🔄 Initializing game loop manager...")
+    GameHandlers.game_loop_manager = create_game_loop_manager(game, control_panel, game_panels)
+    print("🔄 Game loop manager initialized successfully!")
+    
+    # Set initial camera position
     game.camera_controller.update_camera()
     
-    # Update interaction manager (if available)
-    if game.interaction_manager:
-        try:
-            game.interaction_manager.update(time.dt)
-        except Exception as e:
-            print(f"⚠ InteractionManager update error: {e}")
+    print("🚀 Starting Apex Tactics...")
+    print("=" * 50)
+    print("APEX TACTICS - Tactical RPG")
+    print("Camera Controls: [1] Orbit | [2] Free | [3] Top-down")
+    print("Panel Controls: [R] Control Panel | [C] Character | [I] Inventory | [T] Talents | [P] Party | [U] Upgrade")
+    print("Game Controls: Click units to select | Click tiles to move | WASD for movement planning")
+    print("=" * 50)
     
-    # Update control panel with current unit info
-    if game.turn_manager and game.turn_manager.current_unit() and not game.selected_unit:
-        control_panel.update_unit_info(game.turn_manager.current_unit())
-    
-    # Update game panels with current character data
-    if game_panels and game.selected_unit:
-        game_panels.update_character_data(game.selected_unit)
-    elif game_panels and game.turn_manager and game.turn_manager.current_unit():
-        game_panels.update_character_data(game.turn_manager.current_unit())
+    # Run the application
+    app.run()
 
-# Set initial camera position
-game.camera_controller.update_camera()
-
-# Add lighting
-DirectionalLight(y=10, z=5)
-
-app.run()
+if __name__ == "__main__":
+    main()

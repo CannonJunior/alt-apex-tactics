@@ -64,20 +64,8 @@ class ControlPanel:
             color=color.orange
         )
         
-        self.attack_btn = Button(
-            text='ATTACK',
-            color=color.red
-        )
-        
-        self.defend_btn = Button(
-            text='DEFEND',
-            color=color.blue
-        )
-        
         # Set up button functionality
         self.end_turn_btn.on_click = self.end_turn_clicked
-        self.attack_btn.on_click = self.attack_clicked
-        self.defend_btn.on_click = self.defend_clicked
     
     def _create_main_panel(self):
         """Create the main window panel with all content."""
@@ -89,9 +77,7 @@ class ControlPanel:
                 self.game_controls_text,
                 self.stats_display_text,
                 Text('Actions:'),  # Label for buttons
-                self.end_turn_btn,
-                self.attack_btn,
-                self.defend_btn
+                self.end_turn_btn
             ),
             popup=False
         )
@@ -107,20 +93,6 @@ class ControlPanel:
         print("End Turn button clicked!")
         if self.game_reference and hasattr(self.game_reference, 'end_current_turn'):
             self.game_reference.end_current_turn()
-    
-    def attack_clicked(self):
-        """Handle Attack button click."""
-        print("Attack button clicked!")
-        # TODO: Implement attack functionality
-        if self.game_reference and hasattr(self.game_reference, 'start_attack_mode'):
-            self.game_reference.start_attack_mode()
-    
-    def defend_clicked(self):
-        """Handle Defend button click."""
-        print("Defend button clicked!")
-        # TODO: Implement defend functionality
-        if self.game_reference and hasattr(self.game_reference, 'start_defend_mode'):
-            self.game_reference.start_defend_mode()
     
     def set_game_reference(self, game: Any):
         """
