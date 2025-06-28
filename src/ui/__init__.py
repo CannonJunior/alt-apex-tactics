@@ -13,13 +13,22 @@ from .screens import *
 try:
     from .camera_controller import CameraController
     from .visual.grid_visualizer import GridVisualizer
-    from .visual.tile_highlighter import TileHighlighter
-    from .visual.combat_animator import CombatAnimator
     from .interface.inventory_interface import InventoryInterface
     from .interface.combat_interface import CombatInterface
+    
+    # Import Ursina-dependent visual components separately
+    try:
+        from ursina import Entity
+        from .visual.tile_highlighter import TileHighlighter
+        from .visual.combat_animator import CombatAnimator
+        VISUAL_COMPONENTS_AVAILABLE = True
+    except ImportError:
+        VISUAL_COMPONENTS_AVAILABLE = False
+    
     LEGACY_UI_AVAILABLE = True
 except ImportError:
     LEGACY_UI_AVAILABLE = False
+    VISUAL_COMPONENTS_AVAILABLE = False
 
 # Conditionally import engine-specific implementations
 try:
@@ -44,9 +53,15 @@ __all__ = [
 # Add legacy components if available
 if LEGACY_UI_AVAILABLE:
     __all__.extend([
-        'CameraController', 'GridVisualizer', 'TileHighlighter', 
-        'CombatAnimator', 'InventoryInterface', 'CombatInterface'
+        'CameraController', 'GridVisualizer', 
+        'InventoryInterface', 'CombatInterface'
     ])
+    
+    # Add visual components if available
+    if VISUAL_COMPONENTS_AVAILABLE:
+        __all__.extend([
+            'TileHighlighter', 'CombatAnimator'
+        ])
 
 # Add Ursina components if available
 if URSINA_UI_AVAILABLE:

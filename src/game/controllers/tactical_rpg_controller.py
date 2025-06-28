@@ -267,9 +267,7 @@ class TacticalRPG:
                     except Exception as e:
                         print(f"⚠ Error updating control panel: {e}")
     
-    # Note: This is a partial extraction for now. 
-    # The complete class methods can be added as needed.
-    # For now, this demonstrates the extraction pattern.
+    # Complete TacticalRPG controller implementation
     
     def refresh_all_ap(self):
         """Reset action points for all units."""

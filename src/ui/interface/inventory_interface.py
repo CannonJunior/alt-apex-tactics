@@ -5,7 +5,10 @@ Sophisticated inventory management interface with equipment visualization,
 stat comparison, and real-time feedback.
 """
 
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ursina import Entity
 from enum import Enum
 from dataclasses import dataclass
 
@@ -69,15 +72,15 @@ class InventoryInterface:
         self.comparison_item: Optional[EquipmentComponent] = None
         
         # UI components
-        self.main_panel: Optional[Entity] = None
-        self.inventory_grid: List[List[Entity]] = []
-        self.equipment_slots: Dict[EquipmentSlot, Entity] = {}
-        self.stat_displays: Dict[str, Entity] = {}
-        self.comparison_displays: Dict[str, Entity] = {}
+        self.main_panel: Optional['Entity'] = None
+        self.inventory_grid: List[List['Entity']] = []
+        self.equipment_slots: Dict[EquipmentSlot, 'Entity'] = {}
+        self.stat_displays: Dict[str, 'Entity'] = {}
+        self.comparison_displays: Dict[str, 'Entity'] = {}
         
         # Interface elements
-        self.ui_elements: List[Entity] = []
-        self.modal_background: Optional[Entity] = None
+        self.ui_elements: List['Entity'] = []
+        self.modal_background: Optional['Entity'] = None
         
         # Layout configuration
         self.panel_width = 0.8
@@ -388,7 +391,7 @@ class InventoryInterface:
         # For now, all sections are always visible
         pass
     
-    def _on_inventory_slot_click(self, slot_entity: Entity, grid_pos: tuple):
+    def _on_inventory_slot_click(self, slot_entity: 'Entity', grid_pos: tuple):
         """Handle inventory slot click"""
         if not self.selected_unit:
             return
