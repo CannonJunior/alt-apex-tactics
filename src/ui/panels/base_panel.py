@@ -52,7 +52,7 @@ class BasePanel(ABC):
         """
         self.config = config
         self.game_reference = game_reference
-        self.is_visible = config.visible
+        self.is_visible = False  # Force default to False (hidden)
         self.panel_entity = None
         self.content_elements = []
         
@@ -62,8 +62,8 @@ class BasePanel(ABC):
         # Create panel content
         self._create_content()
         
-        # Set initial visibility
-        self.set_visible(self.is_visible)
+        # Set initial visibility (always hidden by default)
+        self.set_visible(False)
     
     def _initialize_engine_components(self):
         """Initialize engine-specific UI components."""
@@ -85,7 +85,8 @@ class BasePanel(ABC):
                 self.config.x_position - 0.5,  # Convert to Ursina screen space (-0.5 to 0.5)
                 self.config.y_position - 0.5,
                 self.config.z_layer * 0.01
-            )
+            ),
+            enabled=False  # Start disabled (hidden)
         )
         
         # Create title if specified
@@ -95,7 +96,8 @@ class BasePanel(ABC):
                 parent=self.panel_entity,
                 position=(0, self.config.height/2 - 0.05, -0.01),
                 scale=1.5,
-                color=color.white
+                color=color.white,
+                enabled=False  # Start disabled (hidden)
             )
             self.content_elements.append(title_text)
     
@@ -176,7 +178,8 @@ class BasePanel(ABC):
             parent=self.panel_entity,
             position=position,
             scale=scale,
-            color=text_color
+            color=text_color,
+            enabled=False  # Start disabled (hidden) - will be enabled when panel is shown
         )
         
         self.content_elements.append(text_element)
@@ -205,7 +208,8 @@ class BasePanel(ABC):
             parent=self.panel_entity,
             position=position,
             scale=size,
-            color=button_color
+            color=button_color,
+            enabled=False  # Start disabled (hidden) - will be enabled when panel is shown
         )
         
         if callback:

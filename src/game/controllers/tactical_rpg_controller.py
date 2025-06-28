@@ -8,7 +8,7 @@ Extracted from apex-tactics.py for better modularity and organization.
 from typing import List, Optional, Tuple, Dict, Any
 
 try:
-    from ursina import Entity, color, destroy, Button, Text, WindowPanel
+    from ursina import Entity, color, destroy, Button, Text, WindowPanel, camera
     URSINA_AVAILABLE = True
 except ImportError:
     URSINA_AVAILABLE = False
@@ -32,6 +32,7 @@ from ui.visual.grid_visualizer import GridVisualizer
 from ui.visual.tile_highlighter import TileHighlighter
 from ui.visual.unit_renderer import UnitEntity
 from ui.interaction.interaction_manager import InteractionManager
+from ui.panels.control_panel import ControlPanel
 
 
 class TacticalRPG:
@@ -46,12 +47,13 @@ class TacticalRPG:
     - User input and interaction
     """
     
-    def __init__(self, control_panel_callback: Optional[callable] = None):
+    def __init__(self, control_panel_callback: Optional[callable] = None, control_panel: Optional[ControlPanel] = None):
         """
         Initialize the tactical RPG game controller.
         
         Args:
             control_panel_callback: Optional callback to get control panel reference
+            control_panel: Optional direct reference to control panel instance
         """
         if not URSINA_AVAILABLE:
             raise ImportError("Ursina is required for TacticalRPG")
@@ -133,6 +135,16 @@ class TacticalRPG:
         
         # Initialize highlight entities list for cleanup
         self.highlight_entities: List[Entity] = []
+        
+        # Use passed control panel or create one if none provided
+        if control_panel:
+            self.control_panel = control_panel
+            # Set game reference if not already set
+            if hasattr(self.control_panel, 'set_game_reference'):
+                self.control_panel.set_game_reference(self)
+        else:
+            # Fallback: create control panel if none provided
+            self.control_panel = ControlPanel(game_reference=self)
         
         # Setup initial battle
         self.setup_battle()
@@ -784,3 +796,22 @@ class TacticalRPG:
         """Highlight possible moves (legacy compatibility)."""
         # This method is now replaced by highlight_movement_range
         self.highlight_movement_range()
+    
+    def handle_input(self, key: str):
+        """
+        Handle keyboard input for the tactical RPG game.
+        
+        Args:
+            key: The key that was pressed
+        """
+        # Handle 'r' key to toggle control panel visibility
+        if key == 'r':
+            if hasattr(self, 'control_panel') and self.control_panel:
+                self.control_panel.toggle_visibility()
+                return True
+        
+        # Handle camera controls if no other input was processed
+        if hasattr(self, 'camera_controller') and self.camera_controller:
+            self.camera_controller.handle_input(key)
+        
+        return False

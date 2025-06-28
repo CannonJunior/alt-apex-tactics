@@ -97,8 +97,6 @@ class GamePanelManager(PanelManager):
         if self.talent_panel:
             self.talent_panel.set_character(character)
         
-        print(f"Updated panels with character: {getattr(character, 'name', 'Unknown')}")
-    
     def update_party_data(self, party_data: Dict[str, Any]):
         """
         Update party panel with party information.

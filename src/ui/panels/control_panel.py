@@ -182,6 +182,29 @@ class ControlPanel:
         self.game_controls_text.text = controls_text
         self.panel.layout()
     
+    def toggle_visibility(self):
+        """Toggle the visibility of the control panel."""
+        if hasattr(self, 'panel') and self.panel:
+            self.panel.enabled = not self.panel.enabled
+            status = "shown" if self.panel.enabled else "hidden"
+            print(f"Control panel {status}")
+    
+    def show(self):
+        """Show the control panel."""
+        if hasattr(self, 'panel') and self.panel:
+            self.panel.enabled = True
+    
+    def hide(self):
+        """Hide the control panel."""
+        if hasattr(self, 'panel') and self.panel:
+            self.panel.enabled = False
+    
+    def is_visible(self) -> bool:
+        """Check if the control panel is currently visible."""
+        if hasattr(self, 'panel') and self.panel:
+            return self.panel.enabled
+        return False
+    
     def cleanup(self):
         """Clean up panel resources."""
         if hasattr(self, 'panel') and self.panel:

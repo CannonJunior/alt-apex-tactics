@@ -44,10 +44,12 @@ from ui.visual.grid_visualizer import GridVisualizer
 from ui.visual.tile_highlighter import TileHighlighter
 from ui.interaction.interactive_tile import InteractiveTile
 from ui.interaction.interaction_manager import InteractionManager
+from ui.interaction.input_handler import create_input_handler
 from ui.camera.camera_controller import CameraController
 from ui.panels.control_panel import ControlPanel
 from ui.panels import create_game_panels
 from ui.visual.unit_renderer import UnitEntity
+from ui.visual.grid_utilities import create_clean_grid_lines, create_ground_plane
 from game.legacy.unit_wrapper import Unit
 from game.legacy.battle_grid_wrapper import BattleGrid
 from game.legacy.turn_manager_wrapper import TurnManager
@@ -60,33 +62,10 @@ import math
 app = Ursina()
 
 # Create a simple ground plane for better visibility  
-ground = Entity(model='plane', texture='white_cube', color=color.dark_gray, scale=(20, 1, 20), position=(4, -0.1, 4))
-
-def create_clean_grid_lines():
-    """Create clean visual grid lines like in phase4_visual_demo"""
-    grid_size = 8  # Match the BattleGrid size
-    line_color = color.Color(0.4, 0.4, 0.4, 0.5)
-    
-    # Vertical lines
-    for x in range(grid_size + 1):
-        line = Entity(
-            model='cube',
-            color=line_color,
-            scale=(0.02, 0.01, grid_size),
-            position=(x, 0, grid_size / 2)
-        )
-    
-    # Horizontal lines  
-    for z in range(grid_size + 1):
-        line = Entity(
-            model='cube', 
-            color=line_color,
-            scale=(grid_size, 0.01, 0.02),
-            position=(grid_size / 2, 0, z)
-        )
+ground = create_ground_plane()
 
 # Create the clean grid
-create_clean_grid_lines()
+grid_entities = create_clean_grid_lines()
 
 # Mouse detection now handled in the input() function using world coordinates
 
@@ -106,44 +85,16 @@ control_panel = ControlPanel()
 # Create game panels manager
 game_panels = None  # Will be initialized after game creation
 
+# Input handler will be initialized after game creation
+input_handler = None
+
 def input(key):
-    # Check if game panels handle the input first
-    if game_panels and game_panels.handle_game_input(key):
-        return  # Panel handled the input
-    
-    # Handle mouse clicks for tile selection
-    if key == 'left mouse down':
-        # Check if clicking on a unit first
-        if mouse.hovered_entity and hasattr(mouse.hovered_entity, 'unit'):
-            return  # Let unit entity handle its own click
-        
-        # Handle tile clicks using world coordinates
-        mouse_pos = mouse.world_point
-        if mouse_pos:
-            # Convert world position to grid coordinates
-            # Floor the coordinates to get the grid tile
-            grid_x = int(mouse_pos.x) if mouse_pos.x >= 0 else -1
-            grid_z = int(mouse_pos.z) if mouse_pos.z >= 0 else -1
-            
-            # Check if click is within grid bounds
-            if 0 <= grid_x < 8 and 0 <= grid_z < 8:
-                game.handle_tile_click(grid_x, grid_z)
-        return
-    
-    # Handle path movement for selected unit ONLY if in move mode
-    if (game.selected_unit and game.current_mode == "move" and 
-        key in ['w', 'a', 's', 'd', 'enter']):
-        game.handle_path_movement(key)
-        return  # Don't process camera controls if unit is selected and WASD/Enter is pressed
-    
-    # Handle camera controls only if not handling unit movement
-    game.camera_controller.handle_input(key)
+    """Global input function that delegates to the input handler."""
+    if input_handler:
+        input_handler.handle_input(key)
 
-# Initialize game with control panel callback
-game = TacticalRPG(control_panel_callback=lambda: control_panel)
-
-# Set game reference for control panel
-control_panel.set_game_reference(game)
+# Initialize game with control panel callback and direct control panel reference
+game = TacticalRPG(control_panel_callback=lambda: control_panel, control_panel=control_panel)
 
 # Initialize game panels after game creation
 try:
@@ -153,6 +104,10 @@ try:
 except Exception as e:
     print(f"⚠️ Warning: Could not initialize game panels: {e}")
     game_panels = None
+
+# Initialize input handler after game and panels are created
+input_handler = create_input_handler(game, game_panels)
+print("⌨️ Input handler initialized successfully!")
 
 def update():
     # Update ECS World - this processes all systems
