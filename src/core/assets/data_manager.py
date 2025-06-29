@@ -208,6 +208,7 @@ class DataManager:
             "iron_sword": 1,
             "steel_axe": 1,
             "magic_bow": 1,
+            "spear": 1,
             "leather_armor": 1,
             "chain_mail": 1,
             "power_ring": 1,

@@ -69,6 +69,33 @@
       "enchantments": ["never_miss", "magical_arrows"]
     },
     {
+      "id": "spear",
+      "name": "Spear",
+      "type": "Weapons",
+      "tier": "BASE",
+      "description": "A long-reach spear with extended attack range and area effect.",
+      "stats": {
+        "physical_attack": 14,
+        "durability": 110,
+        "weight": 2.8,
+        "attack_range": 2,
+        "effect_area": 2
+      },
+      "requirements": {
+        "level": 2,
+        "strength": 10
+      },
+      "icon": "items/weapons/spear.png",
+      "rarity": "common",
+      "value": 75,
+      "stackable": false,
+      "max_stack": 1,
+      "weapon_properties": {
+        "reach": true,
+        "area_attack": true
+      }
+    },
+    {
       "id": "leather_armor",
       "name": "Leather Armor",
       "type": "Armor",
