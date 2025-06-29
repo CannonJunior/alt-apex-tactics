@@ -17,6 +17,15 @@ try:
 except ImportError:
     URSINA_AVAILABLE = False
 
+# Import asset management system
+try:
+    from ...core.assets.data_manager import get_data_manager, create_sample_inventory
+    from ...core.assets.asset_loader import load_texture
+    ASSETS_AVAILABLE = True
+except ImportError:
+    ASSETS_AVAILABLE = False
+    print("⚠️ Asset system not available, using fallback data")
+
 
 class InventoryItem(Draggable):
     """Interactive inventory item that can be dragged and dropped."""
@@ -26,11 +35,14 @@ class InventoryItem(Draggable):
         self.inventory_parent = inventory_parent
         self.is_equipped = item_data.get('equipped_by') is not None
         
+        # Load item texture
+        item_texture = self._load_item_texture()
+        
         # Create draggable item
         super().__init__(
             parent=inventory_parent,
             model='quad',
-            texture='white_cube',  # Default texture - would use item-specific textures in real game
+            texture=item_texture,
             color=color.gray if self.is_equipped else color.white,
             origin=(-.5, .5),
             z=-.1,
@@ -49,6 +61,31 @@ class InventoryItem(Draggable):
         
         # Store original position for drag operations
         self.org_pos = None
+    
+    def _load_item_texture(self):
+        """Load the appropriate texture for this item."""
+        if not ASSETS_AVAILABLE:
+            return 'white_cube'  # Fallback texture
+        
+        # Try to load item-specific texture
+        icon_path = self.item_data.get('icon', '')
+        if icon_path:
+            texture = load_texture(icon_path, fallback='white_cube')
+            return texture
+        
+        # Fallback based on item type
+        type_textures = {
+            'Weapons': 'items/weapons/default_weapon.png',
+            'Armor': 'items/armor/default_armor.png',
+            'Accessories': 'items/accessories/default_accessory.png',
+            'Consumables': 'items/consumables/default_potion.png',
+            'Materials': 'items/materials/default_material.png'
+        }
+        
+        item_type = self.item_data.get('type', 'Materials')
+        fallback_path = type_textures.get(item_type, 'white_cube')
+        
+        return load_texture(fallback_path, fallback='white_cube')
     
     def drag(self):
         """Called when item starts being dragged."""
@@ -261,12 +298,13 @@ class InventoryPanel:
     
     def _create_action_buttons(self):
         """Create action buttons for inventory management."""
+        # Position buttons adjacent to the info panel (info panel is at 0.3, 0.2)
         # Add random item button
         self.add_item_btn = Button(
             text='Add Item',
             color=color.lime.tint(-.25),
             scale=(0.08, 0.04),
-            position=(-0.4, -0.35),
+            position=(0.3, 0.0),  # Below the info panel
             parent=camera.ui,
             tooltip=Tooltip('Add random item'),
             on_click=self._add_random_item
@@ -278,7 +316,7 @@ class InventoryPanel:
             text='Sort',
             color=color.orange.tint(-.25),
             scale=(0.08, 0.04),
-            position=(-0.3, -0.35),
+            position=(0.4, 0.0),  # Next to the Add Item button
             parent=camera.ui,
             tooltip=Tooltip('Sort items by type'),
             on_click=self._sort_items
@@ -286,7 +324,21 @@ class InventoryPanel:
         self.sort_btn.enabled = False
     
     def _load_sample_data(self):
-        """Load sample inventory data."""
+        """Load sample inventory data from asset files."""
+        if ASSETS_AVAILABLE:
+            try:
+                # Load items from asset management system
+                self.sample_items = create_sample_inventory()
+                print(f"✅ Loaded {len(self.sample_items)} items from asset files")
+            except Exception as e:
+                print(f"⚠️ Failed to load from assets: {e}, using fallback data")
+                self._load_fallback_data()
+        else:
+            print("⚠️ Asset system not available, using fallback data")
+            self._load_fallback_data()
+    
+    def _load_fallback_data(self):
+        """Load fallback sample data when asset system is unavailable."""
         self.sample_items = [
             {"name": "Iron Sword", "type": "Weapons", "tier": "BASE", "equipped_by": "Hero", "quantity": 1},
             {"name": "Steel Axe", "type": "Weapons", "tier": "ENHANCED", "equipped_by": None, "quantity": 1},
